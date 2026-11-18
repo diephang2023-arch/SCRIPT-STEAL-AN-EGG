@@ -1,0 +1,285 @@
+-- STEAL AN EGG - COMPLETE SERVER SETUP
+-- For your own Roblox Studio experience
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+--------------------------------------------------
+-- FOLDERS / REMOTES
+--------------------------------------------------
+
+local root = ReplicatedStorage:FindFirstChild("StealAnEgg")
+
+if not root then
+	root = Instance.new("Folder")
+	root.Name = "StealAnEgg"
+	root.Parent = ReplicatedStorage
+end
+
+local remotes = root:FindFirstChild("Remotes")
+
+if not remotes then
+	remotes = Instance.new("Folder")
+	remotes.Name = "Remotes"
+	remotes.Parent = root
+end
+
+local function remote(name)
+	local r = remotes:FindFirstChild(name)
+
+	if not r then
+		r = Instance.new("RemoteEvent")
+		r.Name = name
+		r.Parent = remotes
+	end
+
+	return r
+end
+
+local ToggleAutoFarm = remote("ToggleAutoFarm")
+local ToggleTreadmill = remote("ToggleTreadmill")
+
+--------------------------------------------------
+-- GAME OBJECTS
+--------------------------------------------------
+
+local EggsFolder = workspace:WaitForChild("Eggs")
+local Treadmill = workspace:WaitForChild("Treadmill")
+
+--------------------------------------------------
+-- PLAYER DATA
+--------------------------------------------------
+
+local AutoFarm = {}
+local AutoTreadmill = {}
+
+--------------------------------------------------
+-- SETTINGS
+--------------------------------------------------
+
+local FARM_DISTANCE = 7
+local FARM_DELAY = 0.75
+local TREADMILL_DISTANCE = 10
+local TREADMILL_DELAY = 1
+
+--------------------------------------------------
+-- CHARACTER
+--------------------------------------------------
+
+local function getRoot(player)
+	local character = player.Character
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChild("HumanoidRootPart")
+end
+
+--------------------------------------------------
+-- OBJECT POSITION
+--------------------------------------------------
+
+local function getPosition(object)
+
+	if object:IsA("BasePart") then
+		return object.Position
+	end
+
+	if object:IsA("Model") then
+		return object:GetPivot().Position
+	end
+
+	return nil
+end
+
+--------------------------------------------------
+-- EGG COLLECTION
+--------------------------------------------------
+
+local function collectEgg(player, egg)
+
+	if not egg or not egg.Parent then
+		return
+	end
+
+	if egg:GetAttribute("Collected") then
+		return
+	end
+
+	local root = getRoot(player)
+	local position = getPosition(egg)
+
+	if not root or not position then
+		return
+	end
+
+	local distance =
+		(root.Position - position).Magnitude
+
+	if distance > FARM_DISTANCE then
+		return
+	end
+
+	--------------------------------------------------
+	-- REWARD
+	--------------------------------------------------
+
+	local leaderstats =
+		player:FindFirstChild("leaderstats")
+
+	if leaderstats then
+
+		local eggs =
+			leaderstats:FindFirstChild("Eggs")
+
+		if eggs and eggs:IsA("IntValue") then
+			eggs.Value += 1
+		end
+
+	end
+
+	egg:SetAttribute("Collected", true)
+
+	--------------------------------------------------
+	-- OPTIONAL RESPAWN
+	--------------------------------------------------
+
+	task.delay(3, function()
+
+		if egg and egg.Parent then
+			egg:SetAttribute("Collected", false)
+		end
+
+	end)
+end
+
+--------------------------------------------------
+-- AUTO FARM LOOP
+--------------------------------------------------
+
+local function farmLoop(player)
+
+	while AutoFarm[player] do
+
+		local root = getRoot(player)
+
+		if root then
+
+			local closestEgg = nil
+			local closestDistance = math.huge
+
+			for _, egg in ipairs(EggsFolder:GetChildren()) do
+
+				if not egg:GetAttribute("Collected") then
+
+					local position =
+						getPosition(egg)
+
+					if position then
+
+						local distance =
+							(root.Position - position).Magnitude
+
+						if distance < closestDistance then
+							closestDistance = distance
+							closestEgg = egg
+						end
+
+					end
+				end
+			end
+
+			if closestEgg
+				and closestDistance <= FARM_DISTANCE then
+
+				collectEgg(player, closestEgg)
+
+			end
+		end
+
+		task.wait(FARM_DELAY)
+	end
+end
+
+--------------------------------------------------
+-- TREADMILL LOOP
+--------------------------------------------------
+
+local function treadmillLoop(player)
+
+	while AutoTreadmill[player] do
+
+		local root = getRoot(player)
+		local treadmillPosition =
+			getPosition(Treadmill)
+
+		if root and treadmillPosition then
+
+			local distance =
+				(root.Position - treadmillPosition).Magnitude
+
+			if distance <= TREADMILL_DISTANCE then
+
+				local leaderstats =
+					player:FindFirstChild("leaderstats")
+
+				if leaderstats then
+
+					local speed =
+						leaderstats:FindFirstChild("Speed")
+
+					if speed and speed:IsA("IntValue") then
+						speed.Value += 1
+					end
+
+				end
+			end
+		end
+
+		task.wait(TREADMILL_DELAY)
+	end
+end
+
+--------------------------------------------------
+-- REMOTE EVENTS
+--------------------------------------------------
+
+ToggleAutoFarm.OnServerEvent:Connect(function(player, enabled)
+
+	if typeof(enabled) ~= "boolean" then
+		return
+	end
+
+	AutoFarm[player] = enabled
+
+	if enabled then
+		task.spawn(farmLoop, player)
+	end
+end)
+
+ToggleTreadmill.OnServerEvent:Connect(function(player, enabled)
+
+	if typeof(enabled) ~= "boolean" then
+		return
+	end
+
+	AutoTreadmill[player] = enabled
+
+	if enabled then
+		task.spawn(treadmillLoop, player)
+	end
+end)
+
+--------------------------------------------------
+-- CLEANUP
+--------------------------------------------------
+
+Players.PlayerRemoving:Connect(function(player)
+
+	AutoFarm[player] = nil
+	AutoTreadmill[player] = nil
+
+end)
+
+print("🥚 Steal An Egg system loaded!")
