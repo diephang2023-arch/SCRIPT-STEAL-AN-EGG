@@ -1,10 +1,10 @@
 -- ======================================================
--- VIREX INTRO LOADER • EPIC MOBILE EDITION
+-- GAU MODS INTRO LOADER • EPIC MOBILE EDITION
 -- The uploaded Virex Hub Intro source runs first.
 -- ======================================================
-local VIREX_INTRO_SOURCE = [=[
+local GAU MODS_INTRO_SOURCE = [=[
 -- ======================================================
---                 VIREX HUB - INTRO SCRIPT
+--                 GAU MODS- INTRO SCRIPT
 --                 Theme: Minimalist Black & White
 -- ======================================================
 
@@ -13,8 +13,8 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
 -- Configuration
-local ASSET_LOGO = "rbxassetid://84033903679356"
-local DISCORD_LINK = "https://discord.gg/virexs"
+local ASSET_LOGO = "rbxassetid://84033903679356" ===== id ảnh 
+local DISCORD_LINK = "https://discord.gg/virexs" ====link discord
 
 -- Auto-copy Discord link to clipboard
 if setclipboard then
@@ -252,7 +252,7 @@ task.wait(0.45)
 ScreenGui:Destroy()
 
 -- ======================================================
---          PUT YOUR MAIN VIREX HUB UI SCRIPT BELOW
+--          PUT YOUR MAIN GAU MODS UI SCRIPT BELOW
 -- ======================================================
 -- Example:
 -- loadstring(game:HttpGet("YOUR_MAIN_HUB_SCRIPT_URL_HERE"))()
@@ -260,7 +260,7 @@ ScreenGui:Destroy()
 ]=]
 
 --[[
-    VIREX SCRIPT HUB
+    GAU MODS SCRIPT HUB
     Built from Steal_An_Egg_All_Scripts.txt
 
     Features:
@@ -281,13 +281,13 @@ local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
 
 local VirexSoundFolder = Instance.new("Folder")
-VirexSoundFolder.Name = "VirexSounds"
-VirexSoundFolder.Parent = SoundService
+GaumodsSoundFolder.Name = "GaumodsSounds"
+GaumodsSoundFolder.Parent = SoundService
 
 -- One sound only: every click/option change produces exactly one immediate sound.
 local VirexClickSound = Instance.new("Sound")
-VirexClickSound.Name = "VirexClick"
-VirexClickSound.SoundId = "rbxassetid://6026984224"
+VirexClickSound.Name = "GaumodsClick"
+VirexClickSound.SoundId = "rbxassetid://6026984224"   == id ảnh 
 VirexClickSound.Volume = 0.30
 VirexClickSound.Parent = VirexSoundFolder
 
@@ -316,11 +316,11 @@ end
 local Scripts = {}
 
 local Themes = {
-    {Name = "Virex Red", Main = Color3.fromRGB(8, 16, 30), Panel = Color3.fromRGB(13, 27, 46), Accent = Color3.fromRGB(255, 72, 72), ButtonDark = Color3.fromRGB(95, 8, 18)},
-    {Name = "Virex Purple", Main = Color3.fromRGB(18, 17, 25), Panel = Color3.fromRGB(27, 24, 36), Accent = Color3.fromRGB(160, 100, 255), ButtonDark = Color3.fromRGB(72, 35, 120)},
-    {Name = "Virex Blue", Main = Color3.fromRGB(15, 19, 26), Panel = Color3.fromRGB(23, 29, 40), Accent = Color3.fromRGB(75, 145, 255), ButtonDark = Color3.fromRGB(18, 55, 105)},
-    {Name = "Virex Gold", Main = Color3.fromRGB(22, 20, 16), Panel = Color3.fromRGB(31, 28, 21), Accent = Color3.fromRGB(255, 190, 65), ButtonDark = Color3.fromRGB(105, 72, 12)},
-    {Name = "Virex Green", Main = Color3.fromRGB(15, 22, 19), Panel = Color3.fromRGB(22, 32, 27), Accent = Color3.fromRGB(75, 220, 135), ButtonDark = Color3.fromRGB(18, 92, 55)},
+    {Name = "GAU MODS Red", Main = Color3.fromRGB(8, 16, 30), Panel = Color3.fromRGB(13, 27, 46), Accent = Color3.fromRGB(255, 72, 72), ButtonDark = Color3.fromRGB(95, 8, 18)},
+    {Name = "GAU MODS Purple", Main = Color3.fromRGB(18, 17, 25), Panel = Color3.fromRGB(27, 24, 36), Accent = Color3.fromRGB(160, 100, 255), ButtonDark = Color3.fromRGB(72, 35, 120)},
+    {Name = "GAU MODS Blue", Main = Color3.fromRGB(15, 19, 26), Panel = Color3.fromRGB(23, 29, 40), Accent = Color3.fromRGB(75, 145, 255), ButtonDark = Color3.fromRGB(18, 55, 105)},
+    {Name = "GAU MODS Gold", Main = Color3.fromRGB(22, 20, 16), Panel = Color3.fromRGB(31, 28, 21), Accent = Color3.fromRGB(255, 190, 65), ButtonDark = Color3.fromRGB(105, 72, 12)},
+    {Name = "GAU MODS Green", Main = Color3.fromRGB(15, 22, 19), Panel = Color3.fromRGB(22, 32, 27), Accent = Color3.fromRGB(75, 220, 135), ButtonDark = Color3.fromRGB(18, 92, 55)},
 }
 
 local ThemeIndex = 1
@@ -338,7 +338,7 @@ local function tween(obj, info, props)
 end
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "Virex"
+gui.Name = "GAU MODS"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.DisplayOrder = 9999
@@ -394,7 +394,7 @@ title.BackgroundTransparency = 1
 title.Position = UDim2.fromOffset(74, 3)
 title.Size = UDim2.new(1, -148, 0, 28)
 title.Font = Enum.Font.FredokaOne
-title.Text = "VIREX"
+title.Text = "GAU MODS"
 title.TextSize = 22
 title.TextXAlignment = Enum.TextXAlignment.Center
 title.TextColor3 = Color3.new(1,1,1)
@@ -436,7 +436,7 @@ subtitle.BackgroundTransparency = 1
 subtitle.Position = UDim2.new(0, 58, 0, 29)
 subtitle.Size = UDim2.new(1, -116, 0, 16)
 subtitle.Font = Enum.Font.FredokaOne
-subtitle.Text = "SCRIPT HUB"
+subtitle.Text = "GAU MODS HUB"
 subtitle.TextSize = 10
 subtitle.TextXAlignment = Enum.TextXAlignment.Center
 subtitle.TextColor3 = Color3.fromRGB(145,145,155)
@@ -846,9 +846,9 @@ local function addScriptCard(parent, name, code)
 end
 
 -- ============================================================
--- VIREX ANTI-HIT
+-- GAU MODS ANTI-HIT
 -- Replaced the old script library with the Anti-Hit feature.
--- Route logic is based on the supplied VIREX Anti-Hit source.
+-- Route logic is based on the supplied GAU MODS Anti-Hit source.
 -- ============================================================
 
 local ProximityPromptService = game:GetService("ProximityPromptService")
@@ -909,7 +909,7 @@ antiHitStatus.Parent = antiHitCard
 
 local AntiHitPositiveSound = Instance.new("Sound")
 AntiHitPositiveSound.Name = "AntiHitEnabledSound"
-AntiHitPositiveSound.SoundId = "rbxassetid://6026984224"
+AntiHitPositiveSound.SoundId = "rbxassetid://6026984224"    ===== id ảnh 
 AntiHitPositiveSound.Volume = 0.42
 AntiHitPositiveSound.PlaybackSpeed = 1.25
 AntiHitPositiveSound.Parent = VirexSoundFolder
