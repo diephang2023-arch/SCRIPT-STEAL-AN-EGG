@@ -1,0 +1,1679 @@
+-- ==============================================================================
+-- [ GAU MODS - STEAL PANEL UI + AUTO STEAL + ANTI GUARD ]
+-- Giao diện Steal Panel giống ảnh mẫu (không ngôi sao), nút xanh lá load trứng,
+-- nút mở menu tự động hiển thị ảnh pet/trứng giá trị cao nhất hiện tại
+-- (mất con đó sẽ chuyển sang con tiếp theo), nút mũi tên thoát UI to tô tròn,
+-- và tích hợp đầy đủ Anti Guard + Fast Grab.
+-- ==============================================================================
+
+local Services = {
+    Players = game:GetService("Players"),
+    Workspace = game:GetService("Workspace"),
+    RunService = game:GetService("RunService"),
+    ReplicatedStorage = game:GetService("ReplicatedStorage"),
+    TweenService = game:GetService("TweenService"),
+    UserInputService = game:GetService("UserInputService"),
+    HttpService = game:GetService("HttpService"),
+    ProximityPromptService = game:GetService("ProximityPromptService")
+}
+
+local LocalPlayer = Services.Players.LocalPlayer or Services.Players.PlayerAdded:Wait()
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ==============================================================================
+-- [ CẤU HÌNH ẢNH (ASSET ID) & BẢNG MÀU THEO ẢNH MẪU ]
+-- Thay ID ảnh Roblox của bạn vào các dòng dưới đây (để "" nếu chưa dùng ảnh)
+-- ==============================================================================
+local UI_ASSETS = {
+    MenuButtonIcon = "rbxassetid://84033903679356", -- Ảnh dự phòng khi chưa có pet/trứng nào trên map
+    DefaultEggIcon = "rbxassetid://84033903679356", -- Ảnh mặc định nếu pet/trứng không có icon riêng
+}
+
+local UI_THEME = {
+    PanelBg        = Color3.fromRGB(34, 34, 38),   -- Nền bảng chính xám than
+    PanelStroke    = Color3.fromRGB(18, 18, 22),   -- Viền ngoài đậm nét
+    HeaderRedLeft  = Color3.fromRGB(220, 48, 48),  -- Đỏ sáng bên trái thanh tiêu đề
+    HeaderRedRight = Color3.fromRGB(145, 22, 22),  -- Đỏ sẫm bên phải thanh tiêu đề
+    LoadGreen      = Color3.fromRGB(76, 209, 55),  -- Nút màu xanh lá load trứng
+    LoadGreenDark  = Color3.fromRGB(48, 150, 35),
+    BtnOffBg       = Color3.fromRGB(205, 42, 42),  -- Nút Auto Steal / Anti Guard khi OFF
+    BtnOnBg        = Color3.fromRGB(46, 184, 92),  -- Nút Auto Steal / Anti Guard khi ON
+    RowBg          = Color3.fromRGB(48, 48, 54),   -- Nền từng dòng trứng
+    RowIconBg      = Color3.fromRGB(30, 30, 35),   -- Nền khung ảnh trứng
+    StealBtnBg     = Color3.fromRGB(64, 196, 52),  -- Nút Steal xanh lá
+    StopBtnBg      = Color3.fromRGB(225, 58, 58),  -- Nút Stop đỏ
+    ExitCircleBg   = Color3.fromRGB(24, 24, 28),   -- Nền nút mũi tên thoát tô tròn
+    ExitCircleRing = Color3.fromRGB(255, 220, 90), -- Viền vòng tròn nhấn mạnh nút thoát
+    TextWhite      = Color3.fromRGB(255, 255, 255),
+    TextSub        = Color3.fromRGB(190, 196, 205),
+    TextStatBlue   = Color3.fromRGB(88, 178, 255),
+    TextMoneyGreen = Color3.fromRGB(115, 235, 115),
+}
+
+-- ==============================================================================
+-- [ TƯƠNG THÍCH EXECUTOR ]
+-- ==============================================================================
+local UniversalCompat = {}
+
+function UniversalCompat.FireProximityPrompt(prompt)
+    if not prompt or not prompt.Parent then return false end
+    if typeof(fireproximityprompt) == "function" then
+        local ok = pcall(fireproximityprompt, prompt, 0)
+        if not ok then ok = pcall(fireproximityprompt, prompt, 1) end
+        if not ok then ok = pcall(fireproximityprompt, prompt) end
+        if ok then return true end
+    end
+
+    local triggered = false
+    pcall(function()
+        prompt:InputHoldBegin()
+        local duration = tonumber(prompt.HoldDuration) or 0
+        task.wait(duration > 0 and (duration + 0.05) or 0.04)
+        prompt:InputHoldEnd()
+        triggered = true
+    end)
+    return triggered
+end
+
+-- ==============================================================================
+-- [ LƯU & ĐỌC CẤU HÌNH ]
+-- ==============================================================================
+local saveFile = "GauMods_StealPanel_Config.json"
+local currentSettings = {
+    AutoFarm = false,
+    AntiGuard = false
+}
+
+local function saveStuff()
+    if writefile then
+        pcall(function()
+            writefile(saveFile, Services.HttpService:JSONEncode(currentSettings))
+        end)
+    end
+end
+
+local function loadStuff()
+    if isfile and readfile and isfile(saveFile) then
+        pcall(function()
+            local decoded = Services.HttpService:JSONDecode(readfile(saveFile))
+            if type(decoded) == "table" then
+                if type(decoded.AutoFarm) == "boolean" then currentSettings.AutoFarm = decoded.AutoFarm end
+                if type(decoded.AntiGuard) == "boolean" then currentSettings.AntiGuard = decoded.AntiGuard end
+            end
+        end)
+    end
+end
+loadStuff()
+
+getgenv().config = getgenv().config or {}
+getgenv().config.autoFarm = currentSettings.AutoFarm == true
+
+local State = {
+    currentStealSession = 0,
+    isStealingActive = false,
+    targetedSpecificUid = nil,
+    blacklistedEggs = {},
+    lastServerRollbackTime = 0,
+    activeStealButtons = {},
+    cachedFieldEggs = {},
+    cachedStealPanelItems = {},
+    AntiGuard = currentSettings.AntiGuard == true,
+    RouteSpeed = 0.005,
+    isAntiGuardExecuting = false,
+}
+
+local TeleportPoints = {
+    Vector3.new(500.62, 241.28, -366.64),
+    Vector3.new(504.45, 155.80, -366.35),
+    Vector3.new(508.30, 70.28, -366.03),
+    Vector3.new(513.86, 70.28, -366.25),
+    Vector3.new(519.43, 70.28, -366.47),
+    Vector3.new(524.32, 70.28, -366.59),
+    Vector3.new(529.22, 70.28, -366.71),
+    Vector3.new(538.01, 70.28, -365.55),
+    Vector3.new(546.80, 70.28, -364.40)
+}
+
+local CONFIG = {
+    HopDistance = 230,
+    HopGap = 0.06,
+    HopGapMin = 0.05,
+    HopGapMax = 0.20,
+    GroundAltitude = 70.8,
+    AirGrabOffset = 1.2,
+    CheckpointInterval = 1600,
+    BoundaryCheckpointX = 600.2,
+    BaseDropPosition = Vector3.new(528.7, 70.8, -364.1)
+}
+
+-- ==============================================================================
+-- [ HÀM HỖ TRỢ & KẾT NỐI GAME ]
+-- ==============================================================================
+local function formatMoneyPerSec(val)
+    local n = tonumber(val) or 0
+    if n >= 1e12 then return string.format("$%.2fT/s", n / 1e12) end
+    if n >= 1e9 then return string.format("$%.2fB/s", n / 1e9) end
+    if n >= 1e6 then return string.format("$%.2fM/s", n / 1e6) end
+    if n >= 1e3 then return string.format("$%.2fK/s", n / 1e3) end
+    return string.format("$%.1f/s", n)
+end
+
+local function isBlacklisted(uid)
+    if not uid then return false end
+    local exp = State.blacklistedEggs[uid]
+    if exp and exp > os.clock() then return true end
+    if exp then State.blacklistedEggs[uid] = nil end
+    return false
+end
+
+local function blacklistEgg(uid, duration)
+    if uid then State.blacklistedEggs[uid] = os.clock() + (duration or 15) end
+end
+
+local function isNightPhase()
+    local client = Services.ReplicatedStorage:FindFirstChild("Client")
+    local cycleModule = client and client:FindFirstChild("AreaEggCycle")
+    if cycleModule and cycleModule:IsA("ModuleScript") then
+        local ok, mod = pcall(require, cycleModule)
+        if ok and type(mod) == "table" and type(mod.IsNightPhase) == "function" then
+            local nightOk, res = pcall(mod.IsNightPhase, workspace:GetServerTimeNow())
+            return nightOk and res == true
+        end
+    end
+    return false
+end
+
+local function isWallSealed()
+    local client = Services.ReplicatedStorage:FindFirstChild("Client")
+    local wallModule = client and client:FindFirstChild("AreaEggResetWall")
+    if wallModule and wallModule:IsA("ModuleScript") then
+        local ok, mod = pcall(require, wallModule)
+        if ok and type(mod) == "table" and type(mod.IsSealed) == "function" then
+            local sealedOk, res = pcall(mod.IsSealed)
+            return sealedOk and res == true
+        end
+    end
+
+    local world = Services.Workspace:FindFirstChild("World") or Services.Workspace:FindFirstChild("__OBJECTS")
+    local areas = world and world:FindFirstChild("Areas")
+    local wallCol = areas and areas:FindFirstChild("WallStartCollision")
+    return (wallCol and wallCol:IsA("BasePart") and wallCol.CanCollide == true) or false
+end
+
+local function isMapClosed()
+    return isNightPhase() or isWallSealed()
+end
+
+local function isNormalStealPanelTarget()
+    return State.targetedSpecificUid ~= nil
+end
+
+local function isStealEnabled()
+    if isMapClosed() then return false end
+    return getgenv().config.autoFarm == true or isNormalStealPanelTarget()
+end
+
+local function getRemote(pathName)
+    local packages = Services.ReplicatedStorage:FindFirstChild("Packages")
+    local networking = packages and packages:FindFirstChild("Networking")
+    local remote = networking and networking:FindFirstChild(pathName)
+    if not remote then
+        for _, desc in ipairs(Services.ReplicatedStorage:GetDescendants()) do
+            if (desc:IsA("RemoteFunction") or desc:IsA("RemoteEvent")) and desc.Name == pathName then
+                return desc
+            end
+        end
+    end
+    return remote
+end
+
+local Remotes = {
+    AskFieldEggDrop = getRemote("RF/EggWorld/AskFieldEggDrop"),
+    AskFieldEggCarry = getRemote("RF/EggWorld/AskFieldEggCarry"),
+    AskDoff = getRemote("RF/Treadmill/AskDoff"),
+    AskSnapshot = getRemote("RF/EggWorld/AskFieldEggSnapshot")
+}
+
+local GameModules = {}
+local _moduleCache = {}
+local modulePaths = {
+    EggState = { "Client", "EggState" },
+    Assets = { "Data", "Assets" },
+    Mutations = { "Shared", "Modules", "Mutations" },
+}
+
+function GameModules:Get(name)
+    if _moduleCache[name] then return _moduleCache[name] end
+    local path = modulePaths[name]
+    if not path then return nil end
+
+    local current = Services.ReplicatedStorage
+    for _, part in ipairs(path) do
+        current = current and current:FindFirstChild(part)
+        if not current then break end
+    end
+
+    if current and current:IsA("ModuleScript") then
+        local getid = getthreadidentity or get_thread_identity
+        local setid = setthreadidentity or set_thread_identity
+        local oldId = getid and getid()
+        if setid then pcall(setid, 8) end
+        local ok, mod = pcall(require, current)
+        if setid and oldId then pcall(setid, oldId) end
+        if ok and type(mod) == "table" then
+            _moduleCache[name] = mod
+            return mod
+        end
+    end
+    return nil
+end
+
+local EggState = GameModules:Get("EggState")
+
+-- forceServer = true sẽ ép lấy snapshot mới nhất trực tiếp từ server
+local function getFieldEggRecords(forceServer)
+    if not forceServer then
+        local es = GameModules:Get("EggState") or EggState
+        if es and typeof(es.ReadFieldEggs) == "function" then
+            local getid = getthreadidentity or get_thread_identity
+            local setid = setthreadidentity or set_thread_identity
+            local oldId = getid and getid()
+            if setid then pcall(setid, 8) end
+            local ok, data = pcall(es.ReadFieldEggs)
+            if setid and oldId then pcall(setid, oldId) end
+            if ok and type(data) == "table" and type(data.Records) == "table" and next(data.Records) ~= nil then
+                State.cachedFieldEggs = data.Records
+                return data.Records
+            end
+        end
+    end
+
+    local snapshotRemote = getRemote("RF/EggWorld/AskFieldEggSnapshot") or Remotes.AskSnapshot
+    if snapshotRemote and snapshotRemote:IsA("RemoteFunction") then
+        local ok, data = pcall(function() return snapshotRemote:InvokeServer() end)
+        if ok and type(data) == "table" and type(data.Records) == "table" then
+            State.cachedFieldEggs = data.Records
+            return data.Records
+        end
+    end
+
+    if forceServer then
+        local es = GameModules:Get("EggState") or EggState
+        if es and typeof(es.ReadFieldEggs) == "function" then
+            local ok, data = pcall(es.ReadFieldEggs)
+            if ok and type(data) == "table" and type(data.Records) == "table" then
+                State.cachedFieldEggs = data.Records
+                return data.Records
+            end
+        end
+    end
+
+    return State.cachedFieldEggs or {}
+end
+
+pcall(function()
+    local refreshRemote = getRemote("RE/RigSync/Refresh")
+    if refreshRemote and refreshRemote:IsA("RemoteEvent") then
+        refreshRemote.OnClientEvent:Connect(function(packet)
+            if type(packet) == "table" and packet.Action == "Relocate" then
+                State.lastServerRollbackTime = os.clock()
+            end
+        end)
+    end
+end)
+
+-- ==============================================================================
+-- [ NHÂN VẬT, GODMODE & SHIELD ]
+-- ==============================================================================
+local function getAliveRig()
+    local char = LocalPlayer.Character
+    if not char then return nil, nil, nil end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if root and hum and hum.Health > 0 then
+        return char, root, hum
+    end
+    return nil, nil, nil
+end
+
+local function applyGodMode(character)
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    local ragdollEndTime = tonumber(LocalPlayer:GetAttribute("RagdollEndTime")) or 0
+    if ragdollEndTime > workspace:GetServerTimeNow() then return end
+
+    for _, state in ipairs({ Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Ragdoll, Enum.HumanoidStateType.Physics }) do
+        pcall(function() humanoid:SetStateEnabled(state, false) end)
+    end
+    pcall(function() humanoid.BreakJointsOnDeath = false end)
+
+    for _, desc in ipairs(character:GetDescendants()) do
+        if not desc:FindFirstAncestorWhichIsA("Tool") then
+            if desc:IsA("BallSocketConstraint") or desc:IsA("HingeConstraint") or
+              (desc:IsA("NoCollisionConstraint") and string.find(desc.Name, "Ragdoll", 1, true)) then
+                pcall(function() desc:Destroy() end)
+            elseif desc:IsA("Motor6D") and not desc.Enabled then
+                desc.Enabled = true
+            end
+        end
+    end
+end
+
+local function setCollisions(enabled)
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = enabled
+        end
+    end
+end
+
+local ShieldManager = {
+    OriginalHumanoid = nil,
+    CloneHumanoid = nil,
+    Links = {},
+    DisabledUGI = {}
+}
+
+function ShieldManager:RebindControls(humanoid)
+    pcall(function()
+        local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
+        local playerModule = playerScripts and playerScripts:FindFirstChild("PlayerModule")
+        if playerModule then
+            local controls = require(playerModule):GetControls()
+            if type(controls) == "table" then controls.humanoid = humanoid end
+        end
+    end)
+end
+
+function ShieldManager:CleanupLinks()
+    for _, conn in ipairs(self.Links) do pcall(function() conn:Disconnect() end) end
+    table.clear(self.Links)
+end
+
+function ShieldManager:ApplyHumanoidSwap(character)
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return end
+    if self.CloneHumanoid and self.CloneHumanoid.Parent == character then return end
+
+    self:CleanupLinks()
+    local clone = humanoid:Clone()
+    humanoid.Parent = nil
+    clone.Parent = character
+    Services.Workspace.CurrentCamera.CameraSubject = clone
+    self:RebindControls(clone)
+
+    self.OriginalHumanoid = humanoid
+    self.CloneHumanoid = clone
+
+    table.insert(self.Links, clone:GetPropertyChangedSignal("Health"):Connect(function()
+        if clone and clone.Parent and clone.Health < clone.MaxHealth then
+            clone.Health = clone.MaxHealth
+        end
+    end))
+    table.insert(self.Links, humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+        if clone and clone.Parent then clone.WalkSpeed = humanoid.WalkSpeed end
+    end))
+    table.insert(self.Links, clone.Died:Connect(function() self:UndoSwap() end))
+end
+
+function ShieldManager:UndoSwap()
+    self:CleanupLinks()
+    local char = LocalPlayer.Character
+    local orig = self.OriginalHumanoid
+    local clone = self.CloneHumanoid
+    self.OriginalHumanoid = nil
+    self.CloneHumanoid = nil
+
+    if orig and clone and char and orig.Parent == nil and clone.Parent == char then
+        orig.Parent = char
+        Services.Workspace.CurrentCamera.CameraSubject = orig
+        self:RebindControls(orig)
+        pcall(function() clone:Destroy() end)
+    end
+end
+
+local function isMonitorAction(fn)
+    if not debug or not debug.getconstants then return false end
+    local ok, consts = pcall(debug.getconstants, fn)
+    if not ok or type(consts) ~= "table" then return false end
+    for _, val in pairs(consts) do
+        if val == "Relocate" or val == "SetWalkSpeed" or val == "BeginRagdoll" or val == "BeginImpulse" then
+            return true
+        end
+    end
+    return false
+end
+
+function ShieldManager:MuteUGI()
+    if type(getconnections) ~= "function" then return end
+    for _, event in ipairs({ Services.RunService.Heartbeat, Services.RunService.PreSimulation, Services.RunService.PostSimulation }) do
+        for _, conn in ipairs(getconnections(event)) do
+            local fn = conn.Function
+            if typeof(fn) == "function" then
+                local ok, src = pcall(debug.info, fn, "s")
+                if ok and src and string.find(tostring(src), "UGI", 1, true) then
+                    if not isMonitorAction(fn) and conn.Enabled then
+                        if pcall(function() conn:Disable() end) then
+                            table.insert(self.DisabledUGI, conn)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+function ShieldManager:UnmuteUGI()
+    for _, conn in ipairs(self.DisabledUGI) do pcall(function() conn:Enable() end) end
+    table.clear(self.DisabledUGI)
+end
+
+local function resetStealButtons()
+    for _, btn in pairs(State.activeStealButtons) do
+        if btn and btn.Parent then
+            btn.BackgroundColor3 = UI_THEME.StealBtnBg
+            btn.Text = "Steal"
+        end
+    end
+end
+
+local function abortStealRoutine()
+    State.currentStealSession = State.currentStealSession + 1
+    State.isStealingActive = false
+    State.targetedSpecificUid = nil
+    resetStealButtons()
+
+    ShieldManager:UnmuteUGI()
+    ShieldManager:UndoSwap()
+    setCollisions(true)
+
+    local _, root, hum = getAliveRig()
+    if root then
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+    if hum then
+        hum.PlatformStand = false
+        hum.Sit = false
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    task.wait(0.3)
+    abortStealRoutine()
+    applyGodMode(newChar)
+end)
+
+if LocalPlayer.Character then applyGodMode(LocalPlayer.Character) end
+
+-- ==============================================================================
+-- [ DỮ LIỆU TRỨNG / PET & KIỂM TRA CẦM TRỨNG ]
+-- ==============================================================================
+local MasterRegistry = {
+    RarityRanks = {
+        Common = 1, Uncommon = 2, SuperRare = 2, Rare = 3, Epic = 4,
+        Legendary = 5, Mythic = 6, Rainbow = 6, Cosmic = 7, Secret = 8,
+        Limited = 9, Eternal = 9, Divine = 10, Transcendent = 10
+    },
+    PetDatabase = {}
+}
+
+function MasterRegistry:Build()
+    local assetsMod = GameModules:Get("Assets")
+    if assetsMod and type(assetsMod.Directory) == "table" then
+        for pName, pData in pairs(assetsMod.Directory) do
+            if type(pData) == "table" and type(pData.Rarity) == "table" then
+                local rId = pData.Rarity._id or pData.Rarity.DisplayName
+                local rRank = tonumber(pData.Rarity.RarityNumber or pData.Rarity.Rank) or (rId and self.RarityRanks[rId]) or 1
+                self.PetDatabase[tostring(pName)] = {
+                    Rarity = tostring(rId or "Common"),
+                    Rank = rRank,
+                    Icon = pData.Icon or "",
+                    EarningRate = tonumber(pData.EarningRate) or 0
+                }
+            end
+        end
+    end
+end
+
+function MasterRegistry:Lookup(rawName)
+    if not rawName then return "Common", 1 end
+    rawName = tostring(rawName)
+    if self.PetDatabase[rawName] then return self.PetDatabase[rawName].Rarity, self.PetDatabase[rawName].Rank end
+    if self.RarityRanks[rawName] then return rawName, self.RarityRanks[rawName] end
+
+    local clean = rawName:gsub("[Ee]gg", ""):gsub("[Pp]ure", ""):gsub("[Gg]olden", ""):gsub("[Ss]hiny", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if self.PetDatabase[clean] then return self.PetDatabase[clean].Rarity, self.PetDatabase[clean].Rank end
+
+    for petName, data in pairs(self.PetDatabase) do
+        if string.find(rawName, petName, 1, true) then
+            return data.Rarity, data.Rank
+        end
+    end
+    return "Common", 1
+end
+
+MasterRegistry:Build()
+
+local function normalizeAssetId(rawIcon)
+    local s = tostring(rawIcon or "")
+    if s == "" or s == "0" or s == "rbxassetid://0" then
+        return ""
+    end
+    if tonumber(s) then
+        return "rbxassetid://" .. s
+    end
+    if string.find(s, "rbxassetid://", 1, true) or string.find(s, "rbxthumb://", 1, true) then
+        return s
+    end
+    return "rbxassetid://" .. s
+end
+
+local function isHoldingEgg()
+    if EggState and typeof(EggState) == "table" then
+        if EggState.Carrying == true or (EggState.CarryUid ~= nil and EggState.CarryUid ~= "") then
+            return true
+        end
+    end
+    local dropGui = PlayerGui:FindFirstChild("DropHeldEgg")
+    local runGui = PlayerGui:FindFirstChild("RunBackEffects")
+    return (dropGui and dropGui:IsA("ScreenGui") and dropGui.Enabled) or (runGui and runGui:IsA("ScreenGui") and runGui.Enabled) or false
+end
+
+local function hopOffTreadmill()
+    pcall(function() if Remotes.AskDoff then Remotes.AskDoff:InvokeServer() end end)
+    local _, root, hum = getAliveRig()
+    if root then
+        root.Anchored = false
+        root.CFrame = root.CFrame + root.CFrame.LookVector * 6
+    end
+    if hum then
+        hum.PlatformStand = false
+        hum.Sit = false
+        pcall(function()
+            hum.Jump = true
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end)
+    end
+end
+
+local function dropHeldEggDirect()
+    if EggState and typeof(EggState.DropFieldEgg) == "function" then
+        pcall(function() EggState.DropFieldEgg("PlayerRequest") end)
+    end
+    if Remotes.AskFieldEggDrop then
+        pcall(function() Remotes.AskFieldEggDrop:InvokeServer({ Reason = "PlayerRequest" }) end)
+    end
+end
+
+local function getPhysicalEggPosition(uid, fallbackPos)
+    local eggModel = uid and (Services.Workspace:FindFirstChild(uid) or (Services.Workspace:FindFirstChild("AreaEggSlotsClient") and Services.Workspace.AreaEggSlotsClient:FindFirstChild(uid)))
+    if eggModel then
+        local ok, pivot = pcall(function() return eggModel:GetPivot().Position end)
+        if ok and pivot then return pivot end
+    end
+    return fallbackPos
+end
+
+local function isEggStillValid(uid)
+    if not uid or isBlacklisted(uid) then return false end
+    if not EggState or type(EggState.ReadFieldEggs) ~= "function" then return true end
+
+    local ok, data = pcall(EggState.ReadFieldEggs)
+    if not ok or not data or not data.Records then return true end
+
+    for rUid, record in pairs(data.Records) do
+        if type(record) == "table" and (rUid == uid or record.Uid == uid) then
+            return record.State ~= "Claimed" and record.State ~= "Carried"
+        end
+    end
+    return false
+end
+
+-- ==============================================================================
+-- [ DI CHUYỂN & CƯỚP TRỨNG ]
+-- ==============================================================================
+local function getPlayerCurrentSpeed()
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum and typeof(hum.WalkSpeed) == "number" and hum.WalkSpeed > 0 then
+        if ShieldManager.OriginalHumanoid and ShieldManager.OriginalHumanoid.Parent == nil and ShieldManager.OriginalHumanoid.WalkSpeed > hum.WalkSpeed then
+            return ShieldManager.OriginalHumanoid.WalkSpeed
+        end
+        return hum.WalkSpeed
+    end
+    return 16
+end
+
+local function getStandingPosition(basePos)
+    local _, root, hum = getAliveRig()
+    local hipHeight = hum and hum.HipHeight or 2
+    local rootSizeY = root and (root.Size.Y / 2) or 1
+    return Vector3.new(basePos.X, basePos.Y + hipHeight + rootSizeY, basePos.Z)
+end
+
+local function runAlongGroundSegment(targetPos, stopDist, sessionId, targetUid)
+    local _, root, hum = getAliveRig()
+    if not root or not hum then return false end
+    stopDist = stopDist or 3.5
+
+    local liveSpeed = getPlayerCurrentSpeed()
+    setCollisions(false)
+    hum.PlatformStand = false
+
+    local delta = Vector3.new(targetPos.X - root.Position.X, 0, targetPos.Z - root.Position.Z)
+    local timeout = os.clock() + math.max(8, (delta.Magnitude / math.max(liveSpeed, 16)) + 5)
+    local arrived = false
+    local lastLiveCheck = 0
+
+    local conn
+    conn = Services.RunService.Heartbeat:Connect(function()
+        if sessionId ~= State.currentStealSession or not isStealEnabled() or isMapClosed() then
+            if conn then conn:Disconnect() conn = nil end
+            return
+        end
+
+        local _, cRoot = getAliveRig()
+        if not cRoot or os.clock() > timeout then
+            if conn then conn:Disconnect() conn = nil end
+            return
+        end
+
+        if targetUid and (os.clock() - lastLiveCheck >= 0.25) then
+            lastLiveCheck = os.clock()
+            if not isEggStillValid(targetUid) then
+                blacklistEgg(targetUid, 15)
+                if conn then conn:Disconnect() conn = nil end
+                return
+            end
+        end
+
+        local currentPos = cRoot.Position
+        local flatDiff = Vector3.new(targetPos.X - currentPos.X, 0, targetPos.Z - currentPos.Z)
+        if flatDiff.Magnitude <= stopDist then
+            arrived = true
+            cRoot.AssemblyLinearVelocity = Vector3.zero
+            cRoot.AssemblyAngularVelocity = Vector3.zero
+            if conn then conn:Disconnect() conn = nil end
+            return
+        end
+
+        local curSpeed = getPlayerCurrentSpeed()
+        local dir = flatDiff.Unit
+        cRoot.AssemblyLinearVelocity = Vector3.new(dir.X * curSpeed, cRoot.AssemblyLinearVelocity.Y, dir.Z * curSpeed)
+        cRoot.CFrame = CFrame.new(currentPos.X, currentPos.Y, currentPos.Z) * CFrame.lookAt(Vector3.zero, dir)
+    end)
+
+    while conn and conn.Connected do
+        Services.RunService.Heartbeat:Wait()
+    end
+
+    local _, fRoot = getAliveRig()
+    if fRoot then
+        fRoot.AssemblyLinearVelocity = Vector3.zero
+        fRoot.AssemblyAngularVelocity = Vector3.zero
+    end
+    return arrived and (sessionId == State.currentStealSession) and isStealEnabled()
+end
+
+local function runAlongGroundToEgg(targetPos, sessionId, targetUid)
+    local _, root, hum = getAliveRig()
+    if not root or not hum then return false end
+
+    local groundY = CONFIG.GroundAltitude + 1.0
+    if root.Position.X < CONFIG.BoundaryCheckpointX then
+        local centerDeliveryPos = Vector3.new(CONFIG.BaseDropPosition.X, groundY, CONFIG.BaseDropPosition.Z)
+        local mouthPos = Vector3.new(CONFIG.BoundaryCheckpointX, groundY, CONFIG.BaseDropPosition.Z)
+
+        if math.abs(root.Position.Z - CONFIG.BaseDropPosition.Z) > 12 or root.Position.X < CONFIG.BaseDropPosition.X then
+            if not runAlongGroundSegment(centerDeliveryPos, 4.0, sessionId, targetUid) then return false end
+        end
+        if not runAlongGroundSegment(mouthPos, 4.0, sessionId, targetUid) then return false end
+    end
+
+    local targetStandPos = getStandingPosition(targetPos)
+    if not runAlongGroundSegment(targetStandPos, 3.5, sessionId, targetUid) then return false end
+
+    local _, fRoot = getAliveRig()
+    if fRoot then
+        fRoot.CFrame = CFrame.lookAt(targetStandPos, targetPos)
+        fRoot.AssemblyLinearVelocity = Vector3.zero
+        fRoot.AssemblyAngularVelocity = Vector3.zero
+    end
+    task.wait(0.04)
+    return true
+end
+
+local function instantGrabAtPosition(uid, targetPos, sessionId, isNest)
+    if sessionId ~= State.currentStealSession or not isStealEnabled() then return false end
+    local _, root = getAliveRig()
+    if root and targetPos then
+        local offsetY = isNest and CONFIG.AirGrabOffset or 1.0
+        local safeY = (targetPos.Y or CONFIG.GroundAltitude) + offsetY
+        root.CFrame = CFrame.new(Vector3.new(targetPos.X, safeY, targetPos.Z))
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+
+    local targetPrompt = nil
+    local eggModel = uid and (Services.Workspace:FindFirstChild(uid) or (Services.Workspace:FindFirstChild("AreaEggSlotsClient") and Services.Workspace.AreaEggSlotsClient:FindFirstChild(uid)))
+    if eggModel then
+        targetPrompt = eggModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+    end
+    if not targetPrompt and targetPos then
+        for _, part in ipairs(Services.Workspace:GetPartBoundsInRadius(targetPos, 12)) do
+            local p = part:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if p and p.Enabled then
+                targetPrompt = p
+                break
+            end
+        end
+    end
+
+    local grabTimeout = os.clock() + 3.0
+    local nextRemoteDispatch = 0
+
+    while os.clock() < grabTimeout do
+        if sessionId ~= State.currentStealSession or not isStealEnabled() then break end
+        if not getAliveRig() then break end
+
+        if uid and not isHoldingEgg() and not isEggStillValid(uid) then
+            blacklistEgg(uid, 15)
+            return false
+        end
+
+        if os.clock() >= nextRemoteDispatch then
+            nextRemoteDispatch = os.clock() + 0.3
+            if Remotes.AskFieldEggCarry and uid then
+                task.spawn(function() pcall(function() Remotes.AskFieldEggCarry:InvokeServer({ Uid = uid }) end) end)
+            end
+            if EggState and typeof(EggState.CarryFieldEgg) == "function" and uid then
+                pcall(function() EggState.CarryFieldEgg(uid) end)
+            end
+        end
+
+        if targetPrompt and targetPrompt.Enabled then
+            UniversalCompat.FireProximityPrompt(targetPrompt)
+        end
+
+        for _ = 1, 3 do
+            Services.RunService.Heartbeat:Wait()
+            if isHoldingEgg() then return true end
+        end
+    end
+    return isHoldingEgg()
+end
+
+local function performGroundCheckpoint(targetEgg, currentX, laneZ, sessionId)
+    if sessionId ~= State.currentStealSession or not isStealEnabled() then return false end
+    local _, root, humanoid = getAliveRig()
+    if not root then return false end
+    if humanoid then humanoid.PlatformStand = false end
+
+    local uid = (targetEgg and targetEgg.Uid) or (EggState and EggState.CarryUid)
+    local checkY = CONFIG.GroundAltitude + 1.0
+
+    pcall(function()
+        root.CFrame = CFrame.new(currentX, checkY, laneZ) * CFrame.Angles(0, math.rad(90), 0)
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end)
+    task.wait(0.06)
+
+    dropHeldEggDirect()
+    local dropWait = os.clock() + 0.6
+    while os.clock() < dropWait and isHoldingEgg() do
+        if sessionId ~= State.currentStealSession or not isStealEnabled() then return false end
+        dropHeldEggDirect()
+        task.wait(0.08)
+    end
+    task.wait(0.04)
+
+    if uid and EggState and typeof(EggState.CarryFieldEgg) == "function" then
+        pcall(function() EggState.CarryFieldEgg(uid) end)
+        task.wait(0.12)
+    end
+
+    if not isHoldingEgg() then
+        local eggFloorPos = getPhysicalEggPosition(uid, Vector3.new(currentX, checkY, laneZ))
+        local retryTimeout = os.clock() + 3.0
+        while os.clock() < retryTimeout do
+            if sessionId ~= State.currentStealSession or not isStealEnabled() then return false end
+            if instantGrabAtPosition(uid, eggFloorPos, sessionId, false) and isHoldingEgg() then break end
+            Services.RunService.Heartbeat:Wait()
+        end
+    end
+    task.wait(0.04)
+    return isHoldingEgg()
+end
+
+local function executeCheckpointedHopsHome(targetEgg, sessionId)
+    local _, root, humanoid = getAliveRig()
+    if not root then return false end
+
+    local boundaryX = CONFIG.BoundaryCheckpointX
+    local playerSpeed = getPlayerCurrentSpeed()
+    local stepSize = (playerSpeed < 100) and math.max(34, playerSpeed * 0.45) or math.min(CONFIG.HopDistance, math.max(60, playerSpeed * 0.75))
+    local safeTarget = CONFIG.BaseDropPosition
+    local laneZ = math.clamp(root.Position.Z, -425, -300)
+    local currentX = root.Position.X
+    local lastCheckpointX = currentX
+    local groundY = CONFIG.GroundAltitude + 1.0
+
+    ShieldManager:MuteUGI()
+    if humanoid then humanoid.PlatformStand = false end
+
+    while currentX - stepSize > boundaryX do
+        if sessionId ~= State.currentStealSession or not isStealEnabled() or not isHoldingEgg() then
+            ShieldManager:UnmuteUGI()
+            return false
+        end
+
+        local _, cRoot = getAliveRig()
+        if not cRoot then
+            ShieldManager:UnmuteUGI()
+            return false
+        end
+
+        local nextX = currentX - stepSize
+        local preHopTime = os.clock()
+        pcall(function()
+            cRoot.CFrame = CFrame.new(nextX, groundY, laneZ) * CFrame.Angles(0, math.rad(90), 0)
+            cRoot.AssemblyLinearVelocity = Vector3.zero
+        end)
+        task.wait(CONFIG.HopGap)
+
+        local _, postRoot = getAliveRig()
+        local pulled = (State.lastServerRollbackTime > preHopTime) or (postRoot ~= nil and (postRoot.Position.X - nextX > 15))
+        if pulled then
+            CONFIG.HopGap = math.min(CONFIG.HopGapMax, CONFIG.HopGap + 0.02)
+            stepSize = math.max(34, stepSize * 0.75)
+            task.wait(0.1)
+        else
+            currentX = nextX
+            CONFIG.HopGap = math.max(CONFIG.HopGapMin, CONFIG.HopGap - 0.005)
+        end
+
+        if math.abs(lastCheckpointX - currentX) >= CONFIG.CheckpointInterval then
+            lastCheckpointX = currentX
+            if not performGroundCheckpoint(targetEgg, currentX, laneZ, sessionId) and not isHoldingEgg() then
+                ShieldManager:UnmuteUGI()
+                return false
+            end
+        end
+    end
+
+    if isHoldingEgg() then
+        currentX = boundaryX
+        pcall(function()
+            local _, bRoot = getAliveRig()
+            if bRoot then
+                bRoot.CFrame = CFrame.new(boundaryX, groundY, laneZ) * CFrame.Angles(0, math.rad(90), 0)
+                bRoot.AssemblyLinearVelocity = Vector3.zero
+            end
+        end)
+        task.wait(0.08)
+        if not performGroundCheckpoint(targetEgg, boundaryX, laneZ, sessionId) and not isHoldingEgg() then
+            ShieldManager:UnmuteUGI()
+            return false
+        end
+    end
+
+    local corridorStep = 45
+    while currentX - corridorStep > safeTarget.X do
+        if sessionId ~= State.currentStealSession or not isStealEnabled() or not isHoldingEgg() then break end
+        local nextX = currentX - corridorStep
+        local _, cRoot = getAliveRig()
+        if cRoot then
+            pcall(function()
+                cRoot.CFrame = CFrame.new(nextX, groundY, safeTarget.Z) * CFrame.Angles(0, math.rad(90), 0)
+                cRoot.AssemblyLinearVelocity = Vector3.zero
+            end)
+        end
+        task.wait(CONFIG.HopGap)
+        currentX = nextX
+    end
+
+    local _, fRoot, fHum = getAliveRig()
+    if fRoot then
+        pcall(function()
+            fRoot.CFrame = CFrame.new(safeTarget.X, CONFIG.GroundAltitude + 1.2, safeTarget.Z)
+            fRoot.AssemblyLinearVelocity = Vector3.zero
+        end)
+    end
+    task.wait(0.15)
+    if fHum then fHum.PlatformStand = false end
+
+    dropHeldEggDirect()
+    task.wait(0.25)
+
+    local dropVerifyTimeout = os.clock() + 2.0
+    while os.clock() < dropVerifyTimeout and isHoldingEgg() do
+        dropHeldEggDirect()
+        task.wait(0.2)
+    end
+
+    ShieldManager:UnmuteUGI()
+    return not isHoldingEgg()
+end
+
+local function getBestEgg()
+    if isMapClosed() then return nil end
+    local records = getFieldEggRecords(false)
+    if not records or next(records) == nil then return nil end
+
+    if isNormalStealPanelTarget() then
+        for uid, record in pairs(records) do
+            if type(record) == "table" and (uid == State.targetedSpecificUid or record.Uid == State.targetedSpecificUid) then
+                record.Uid = record.Uid or uid
+                if State.isStealingActive or isHoldingEgg() or (record.State ~= "Claimed" and record.State ~= "Carried") then
+                    return record
+                end
+            end
+        end
+
+        local directFloorPos = getPhysicalEggPosition(State.targetedSpecificUid, nil)
+        if directFloorPos and (State.isStealingActive or isHoldingEgg() or isEggStillValid(State.targetedSpecificUid)) then
+            return {
+                Uid = State.targetedSpecificUid,
+                BottomCFrame = CFrame.new(directFloorPos),
+                AssetCategory = "TargetedEgg"
+            }
+        end
+
+        if not State.isStealingActive and not isHoldingEgg() then
+            abortStealRoutine()
+        end
+    end
+
+    if not (getgenv().config.autoFarm == true) then return nil end
+
+    local bestEgg = nil
+    local highestScore = -math.huge
+
+    for keyUid, record in pairs(records) do
+        if type(record) == "table" then
+            local uid = (type(record.Uid) == "string" and record.Uid) or (type(keyUid) == "string" and keyUid) or nil
+            record.Uid = uid
+            if uid and not isBlacklisted(uid) then
+                if record.State == "Slot" or record.State == "Dropped" or record.State == nil then
+                    local posX = nil
+                    local cf = record.BottomCFrame or record.BoundsCFrame or record.CFrame
+                    if typeof(cf) == "CFrame" then posX = cf.Position.X
+                    elseif typeof(cf) == "Vector3" then posX = cf.X
+                    elseif typeof(record.Position) == "Vector3" then posX = record.Position.X end
+
+                    if not posX or posX >= 560 then
+                        local rawName = record.AssetCategory or record.Category or record.Name or "Unknown"
+                        local _, rank = MasterRegistry:Lookup(rawName)
+                        local scale = tonumber(record.AssetScale) or 1
+                        local mutationBonus = (record.Mutations and #record.Mutations > 0) and 2.5 or 1
+                        local score = (rank * 1000) + ((scale ^ 1.85) * mutationBonus)
+
+                        if score > highestScore then
+                            highestScore = score
+                            bestEgg = record
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return bestEgg
+end
+
+local function getStealPanelEggItems(forceServer)
+    local records = getFieldEggRecords(forceServer == true)
+    if not records or type(records) ~= "table" or next(records) == nil then
+        return forceServer and {} or (State.cachedStealPanelItems or {})
+    end
+
+    if State.targetedSpecificUid and not isHoldingEgg() and not State.isStealingActive then
+        local found = false
+        for uid, record in pairs(records) do
+            if type(record) == "table" and (uid == State.targetedSpecificUid or record.Uid == State.targetedSpecificUid) then
+                found = true
+                break
+            end
+        end
+        if not found then State.targetedSpecificUid = nil end
+    end
+
+    local assetsMod = GameModules:Get("Assets")
+    local assetsDir = assetsMod and assetsMod.Directory
+    local mutationsMod = GameModules:Get("Mutations")
+    local eggItems = {}
+
+    for keyUid, record in pairs(records) do
+        if type(record) == "table" then
+            local uid = (type(record.Uid) == "string" and record.Uid) or (type(keyUid) == "string" and keyUid) or nil
+            record.Uid = uid
+
+            if type(uid) == "string" and string.sub(uid, 1, 12) ~= "FirstAreaEgg" and not isBlacklisted(uid) then
+                local st = record.State
+                if st == "Slot" or st == "Dropped" or st == "Carried" or st == "Placed" or st == nil then
+                    local cat = tostring(record.AssetCategory or record.Category or record.Name or "Unknown")
+                    local assetData = (assetsDir and assetsDir[cat]) or MasterRegistry.PetDatabase[cat] or {}
+
+                    local displayName = tostring(assetData.DisplayName or cat)
+                    local rarityData = (type(assetData.Rarity) == "table" and assetData.Rarity) or {}
+                    local rarityName = tostring(rarityData.DisplayName or rarityData._id or assetData.Rarity or "Common")
+                    local rarityRank = tonumber(rarityData.RarityNumber or rarityData.Rank or assetData.Rank) or (MasterRegistry.RarityRanks and MasterRegistry.RarityRanks[rarityName]) or 1
+
+                    local scale = tonumber(record.AssetScale) or 1
+                    local scaleFactor = (scale > 5) and (((scale / 5) ^ 1.2) * 19.637875755794113) or (scale ^ 1.85)
+
+                    local mutationMultiplier = 1
+                    if mutationsMod and typeof(mutationsMod.EarningsFor) == "function" and type(record.Mutations) == "table" then
+                        local ok, mul = pcall(mutationsMod.EarningsFor, record.Mutations)
+                        if ok and type(mul) == "number" and mul > 0 then mutationMultiplier = mul end
+                    elseif record.Mutations and #record.Mutations > 0 then
+                        mutationMultiplier = 2.5
+                    end
+
+                    local baseRate = tonumber(assetData.EarningRate) or 0
+                    local valuePerSec = baseRate * scaleFactor * mutationMultiplier
+
+                    local rawIcon = assetData.Icon or assetData.Thumbnail or record.Icon or ""
+                    local iconId = normalizeAssetId(rawIcon)
+                    if iconId == "" then
+                        iconId = normalizeAssetId(UI_ASSETS.DefaultEggIcon)
+                    end
+
+                    table.insert(eggItems, {
+                        Uid = uid,
+                        Name = displayName,
+                        Area = tostring(record.AreaId or "Unknown"),
+                        Scale = scale,
+                        Rarity = rarityName,
+                        Rank = rarityRank,
+                        Value = valuePerSec,
+                        Icon = iconId,
+                        Record = record
+                    })
+                end
+            end
+        end
+    end
+
+    if #eggItems > 0 or forceServer then
+        State.cachedStealPanelItems = eggItems
+    end
+    return eggItems
+end
+
+-- ==============================================================================
+-- [ LOGIC ANTI GUARD & FAST GRAB ]
+-- ==============================================================================
+Services.ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
+    if player ~= LocalPlayer then return end
+    if not State.AntiGuard or State.isAntiGuardExecuting then return end
+
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    State.isAntiGuardExecuting = true
+    for _, pos in ipairs(TeleportPoints) do
+        if not State.AntiGuard or not root.Parent then
+            break
+        end
+        root.CFrame = CFrame.new(pos)
+        task.wait(State.RouteSpeed)
+    end
+    State.isAntiGuardExecuting = false
+end)
+
+local function applyInstantHold(prompt)
+    if prompt and prompt:IsA("ProximityPrompt") then
+        pcall(function()
+            prompt.HoldDuration = 0
+        end)
+    end
+end
+
+for _, desc in ipairs(Services.Workspace:GetDescendants()) do
+    if desc:IsA("ProximityPrompt") then
+        applyInstantHold(desc)
+    end
+end
+
+Services.Workspace.DescendantAdded:Connect(function(desc)
+    if desc:IsA("ProximityPrompt") then
+        task.defer(applyInstantHold, desc)
+    end
+end)
+
+local fastGrabBusy = false
+Services.ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
+    if player and player ~= LocalPlayer then return end
+    if fastGrabBusy or not prompt or not prompt.Enabled then return end
+    fastGrabBusy = true
+
+    pcall(function()
+        prompt.HoldDuration = 0
+        if typeof(fireproximityprompt) == "function" then
+            fireproximityprompt(prompt)
+        else
+            prompt:InputHoldBegin()
+            task.wait(0.02)
+            prompt:InputHoldEnd()
+        end
+    end)
+
+    task.delay(0.05, function()
+        fastGrabBusy = false
+    end)
+end)
+
+-- ==============================================================================
+-- [ VÒNG LẶP CHẠY AUTO STEAL ]
+-- ==============================================================================
+task.spawn(function()
+    while true do
+        task.wait(0.25)
+        local now = os.clock()
+
+        for uid, exp in pairs(State.blacklistedEggs) do
+            if now > exp then State.blacklistedEggs[uid] = nil end
+        end
+
+        local char = LocalPlayer.Character
+        if char and isStealEnabled() and not State.isStealingActive and not isMapClosed() then
+            local currentTargetEgg = getBestEgg()
+            if currentTargetEgg then
+                local targetUid = currentTargetEgg.Uid
+                if not isEggStillValid(targetUid) then
+                    blacklistEgg(targetUid, 15)
+                    if State.targetedSpecificUid == targetUid then abortStealRoutine() end
+                else
+                    State.isStealingActive = true
+                    State.currentStealSession = State.currentStealSession + 1
+                    local session = State.currentStealSession
+
+                    hopOffTreadmill()
+                    ShieldManager:ApplyHumanoidSwap(char)
+                    task.wait(0.08)
+
+                    local targetCFrame = currentTargetEgg.BottomCFrame or currentTargetEgg.BoundsCFrame or currentTargetEgg.CFrame
+                    local eggTargetPos = nil
+                    if typeof(targetCFrame) == "CFrame" then eggTargetPos = targetCFrame.Position
+                    elseif typeof(targetCFrame) == "Vector3" then eggTargetPos = targetCFrame
+                    elseif typeof(currentTargetEgg.Position) == "Vector3" then eggTargetPos = currentTargetEgg.Position end
+                    if not eggTargetPos and targetUid then eggTargetPos = getPhysicalEggPosition(targetUid, nil) end
+
+                    local stealSuccess = false
+                    if eggTargetPos then
+                        local arrived = runAlongGroundToEgg(eggTargetPos, session, targetUid)
+                        if arrived and session == State.currentStealSession and isStealEnabled() then
+                            task.wait(0.04)
+                            local grabbed = instantGrabAtPosition(targetUid, eggTargetPos, session, false)
+                            if (grabbed or isHoldingEgg()) and session == State.currentStealSession and isStealEnabled() then
+                                stealSuccess = executeCheckpointedHopsHome(currentTargetEgg, session)
+                            end
+                        end
+                    end
+
+                    if session == State.currentStealSession then
+                        State.isStealingActive = false
+                        ShieldManager:UndoSwap()
+                        if State.targetedSpecificUid == targetUid and (stealSuccess or not isEggStillValid(targetUid)) then
+                            abortStealRoutine()
+                        end
+                    else
+                        State.isStealingActive = false
+                        ShieldManager:UndoSwap()
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ==============================================================================
+-- [ GIAO DIỆN STEAL PANEL + NÚT MỞ MENU ẢNH PET CAO NHẤT + MŨI TÊN THOÁT TÔ TRÒN ]
+-- ==============================================================================
+local GuiParent = (gethui and gethui()) or PlayerGui
+if GuiParent:FindFirstChild("GauMods_StealPanelUI") then
+    GuiParent.GauMods_StealPanelUI:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "GauMods_StealPanelUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = GuiParent
+
+local function addCorner(inst, radius)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius or 8)
+    c.Parent = inst
+    return c
+end
+
+local function addStroke(inst, color, thickness)
+    local s = Instance.new("UIStroke")
+    s.Color = color or UI_THEME.PanelStroke
+    s.Thickness = thickness or 1.2
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent = inst
+    return s
+end
+
+local function makeDraggable(dragHandle, moveTarget)
+    moveTarget = moveTarget or dragHandle
+    local dragging = false
+    local dragInput = nil
+    local startPos = nil
+    local startInputPos = nil
+
+    dragHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            startPos = moveTarget.Position
+            startInputPos = input.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    dragHandle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    Services.UserInputService.InputChanged:Connect(function(input)
+        if dragging and input == dragInput then
+            local delta = input.Position - startInputPos
+            moveTarget.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+-- Nút nổi mở menu: tự động đổi ảnh sang con pet/trứng có giá trị cao nhất hiện có
+local ToggleFloatBtn = Instance.new("ImageButton")
+ToggleFloatBtn.Name = "FloatToggleBtn"
+ToggleFloatBtn.Size = UDim2.fromOffset(54, 54)
+ToggleFloatBtn.Position = UDim2.new(0.03, 0, 0.45, 0)
+ToggleFloatBtn.BackgroundColor3 = UI_THEME.RowIconBg
+ToggleFloatBtn.Image = normalizeAssetId(UI_ASSETS.MenuButtonIcon)
+ToggleFloatBtn.ScaleType = Enum.ScaleType.Fit
+ToggleFloatBtn.AutoButtonColor = false
+ToggleFloatBtn.Parent = ScreenGui
+addCorner(ToggleFloatBtn, 12)
+addStroke(ToggleFloatBtn, UI_THEME.HeaderRedLeft, 2)
+
+local FloatFallback = Instance.new("TextLabel")
+FloatFallback.Size = UDim2.fromScale(1, 1)
+FloatFallback.BackgroundTransparency = 1
+FloatFallback.Text = "GAU"
+FloatFallback.TextColor3 = UI_THEME.TextWhite
+FloatFallback.Font = Enum.Font.GothamBlack
+FloatFallback.TextSize = 12
+FloatFallback.Visible = (ToggleFloatBtn.Image == "")
+FloatFallback.Parent = ToggleFloatBtn
+
+local function updateTopPetFloatButton(sortedItems)
+    local chosenIcon = ""
+    if type(sortedItems) == "table" then
+        for _, item in ipairs(sortedItems) do
+            if item and not isBlacklisted(item.Uid) and item.Icon and item.Icon ~= "" then
+                local norm = normalizeAssetId(item.Icon)
+                if norm ~= "" then
+                    chosenIcon = norm
+                    break
+                end
+            end
+        end
+    end
+
+    if chosenIcon == "" then
+        chosenIcon = normalizeAssetId(UI_ASSETS.MenuButtonIcon)
+    end
+
+    ToggleFloatBtn.Image = chosenIcon
+    FloatFallback.Visible = (chosenIcon == "")
+end
+
+-- Khung Steal Panel chính
+local PanelFrame = Instance.new("Frame")
+PanelFrame.Name = "StealPanelFrame"
+PanelFrame.Size = UDim2.fromOffset(258, 326)
+PanelFrame.Position = UDim2.new(0.62, 0, 0.24, 0)
+PanelFrame.BackgroundColor3 = UI_THEME.PanelBg
+PanelFrame.BorderSizePixel = 0
+PanelFrame.ClipsDescendants = true
+PanelFrame.Parent = ScreenGui
+addCorner(PanelFrame, 10)
+addStroke(PanelFrame, UI_THEME.PanelStroke, 2)
+
+-- Thanh tiêu đề đỏ gradient + nút mũi tên thoát UI to tô tròn + nút xanh lá Load Eggs
+local HeaderBar = Instance.new("Frame")
+HeaderBar.Name = "HeaderBar"
+HeaderBar.Size = UDim2.new(1, 0, 0, 38)
+HeaderBar.BackgroundColor3 = UI_THEME.HeaderRedLeft
+HeaderBar.BorderSizePixel = 0
+HeaderBar.Parent = PanelFrame
+addCorner(HeaderBar, 10)
+
+local HeaderGrad = Instance.new("UIGradient")
+HeaderGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, UI_THEME.HeaderRedLeft),
+    ColorSequenceKeypoint.new(1, UI_THEME.HeaderRedRight)
+})
+HeaderGrad.Parent = HeaderBar
+
+local ExitArrowBtn = Instance.new("TextButton")
+ExitArrowBtn.Name = "ExitArrowButton"
+ExitArrowBtn.Size = UDim2.fromOffset(30, 30)
+ExitArrowBtn.Position = UDim2.fromOffset(5, 4)
+ExitArrowBtn.BackgroundColor3 = UI_THEME.ExitCircleBg
+ExitArrowBtn.Text = "↩"
+ExitArrowBtn.TextColor3 = UI_THEME.ExitCircleRing
+ExitArrowBtn.Font = Enum.Font.GothamBlack
+ExitArrowBtn.TextSize = 18
+ExitArrowBtn.AutoButtonColor = false
+ExitArrowBtn.Parent = HeaderBar
+addCorner(ExitArrowBtn, 999)
+addStroke(ExitArrowBtn, UI_THEME.ExitCircleRing, 2.2)
+
+local HeaderTitle = Instance.new("TextLabel")
+HeaderTitle.Size = UDim2.new(1, -128, 1, 0)
+HeaderTitle.Position = UDim2.fromOffset(41, 0)
+HeaderTitle.BackgroundTransparency = 1
+HeaderTitle.Text = "Steal Panel"
+HeaderTitle.TextColor3 = UI_THEME.TextWhite
+HeaderTitle.Font = Enum.Font.GothamBold
+HeaderTitle.TextSize = 13.5
+HeaderTitle.TextXAlignment = Enum.TextXAlignment.Left
+HeaderTitle.TextTruncate = Enum.TextTruncate.AtEnd
+HeaderTitle.Parent = HeaderBar
+
+local LoadEggBtn = Instance.new("TextButton")
+LoadEggBtn.Name = "LoadEggsButton"
+LoadEggBtn.Size = UDim2.fromOffset(78, 24)
+LoadEggBtn.Position = UDim2.new(1, -84, 0.5, -12)
+LoadEggBtn.BackgroundColor3 = UI_THEME.LoadGreen
+LoadEggBtn.Text = "Load Eggs"
+LoadEggBtn.TextColor3 = UI_THEME.TextWhite
+LoadEggBtn.Font = Enum.Font.GothamBold
+LoadEggBtn.TextSize = 10.5
+LoadEggBtn.AutoButtonColor = false
+LoadEggBtn.Parent = HeaderBar
+addCorner(LoadEggBtn, 6)
+addStroke(LoadEggBtn, UI_THEME.LoadGreenDark, 1.2)
+
+makeDraggable(HeaderBar, PanelFrame)
+makeDraggable(ToggleFloatBtn, ToggleFloatBtn)
+
+-- Hàng 2 nút chức năng ngay dưới thanh tiêu đề: Auto Steal | Anti Guard
+local ActionRow = Instance.new("Frame")
+ActionRow.Name = "ActionButtonsRow"
+ActionRow.Size = UDim2.new(1, -12, 0, 26)
+ActionRow.Position = UDim2.fromOffset(6, 44)
+ActionRow.BackgroundTransparency = 1
+ActionRow.Parent = PanelFrame
+
+local AutoStealBtn = Instance.new("TextButton")
+AutoStealBtn.Name = "AutoStealToggle"
+AutoStealBtn.Size = UDim2.new(0.5, -3, 1, 0)
+AutoStealBtn.Position = UDim2.fromOffset(0, 0)
+AutoStealBtn.BackgroundColor3 = UI_THEME.BtnOffBg
+AutoStealBtn.Text = "Auto Steal: OFF"
+AutoStealBtn.TextColor3 = UI_THEME.TextWhite
+AutoStealBtn.Font = Enum.Font.GothamBold
+AutoStealBtn.TextSize = 10.5
+AutoStealBtn.AutoButtonColor = false
+AutoStealBtn.Parent = ActionRow
+addCorner(AutoStealBtn, 6)
+addStroke(AutoStealBtn, UI_THEME.PanelStroke, 1)
+
+local AntiGuardBtn = Instance.new("TextButton")
+AntiGuardBtn.Name = "AntiGuardToggle"
+AntiGuardBtn.Size = UDim2.new(0.5, -3, 1, 0)
+AntiGuardBtn.Position = UDim2.new(0.5, 3, 0, 0)
+AntiGuardBtn.BackgroundColor3 = UI_THEME.BtnOffBg
+AntiGuardBtn.Text = "Anti Guard: OFF"
+AntiGuardBtn.TextColor3 = UI_THEME.TextWhite
+AntiGuardBtn.Font = Enum.Font.GothamBold
+AntiGuardBtn.TextSize = 10.5
+AntiGuardBtn.AutoButtonColor = false
+AntiGuardBtn.Parent = ActionRow
+addCorner(AntiGuardBtn, 6)
+addStroke(AntiGuardBtn, UI_THEME.PanelStroke, 1)
+
+-- Danh sách trứng cuộn phía dưới (KHÔNG CÓ NÚT NGÔI SAO)
+local EggScroll = Instance.new("ScrollingFrame")
+EggScroll.Name = "EggListScroll"
+EggScroll.Size = UDim2.new(1, -12, 1, -78)
+EggScroll.Position = UDim2.fromOffset(6, 74)
+EggScroll.BackgroundTransparency = 1
+EggScroll.ScrollBarThickness = 3
+EggScroll.ScrollBarImageColor3 = UI_THEME.TextSub
+EggScroll.CanvasSize = UDim2.fromOffset(0, 0)
+EggScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+EggScroll.Parent = PanelFrame
+
+local EggLayout = Instance.new("UIListLayout")
+EggLayout.Padding = UDim.new(0, 5)
+EggLayout.Parent = EggScroll
+
+local EggPad = Instance.new("UIPadding")
+EggPad.PaddingBottom = UDim.new(0, 4)
+EggPad.Parent = EggScroll
+
+local function refreshAutoStealUI(enabled)
+    getgenv().config.autoFarm = enabled
+    currentSettings.AutoFarm = enabled
+    saveStuff()
+
+    AutoStealBtn.Text = enabled and "Auto Steal: ON" or "Auto Steal: OFF"
+    Services.TweenService:Create(AutoStealBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = enabled and UI_THEME.BtnOnBg or UI_THEME.BtnOffBg
+    }):Play()
+
+    if not enabled then
+        abortStealRoutine()
+    end
+end
+
+local function refreshAntiGuardUI(enabled)
+    State.AntiGuard = enabled
+    currentSettings.AntiGuard = enabled
+    saveStuff()
+
+    AntiGuardBtn.Text = enabled and "Anti Guard: ON" or "Anti Guard: OFF"
+    Services.TweenService:Create(AntiGuardBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = enabled and UI_THEME.BtnOnBg or UI_THEME.BtnOffBg
+    }):Play()
+end
+
+AutoStealBtn.MouseButton1Click:Connect(function()
+    table.clear(State.blacklistedEggs)
+    refreshAutoStealUI(not (getgenv().config.autoFarm == true))
+end)
+
+AntiGuardBtn.MouseButton1Click:Connect(function()
+    refreshAntiGuardUI(not State.AntiGuard)
+end)
+
+refreshAutoStealUI(currentSettings.AutoFarm == true)
+refreshAntiGuardUI(currentSettings.AntiGuard == true)
+
+local function renderStealPanel(forceServer)
+    local items = getStealPanelEggItems(forceServer == true)
+    table.sort(items, function(a, b) return (a.Value or 0) > (b.Value or 0) end)
+
+    updateTopPetFloatButton(items)
+
+    if not PanelFrame.Visible then
+        return
+    end
+
+    for _, child in ipairs(EggScroll:GetChildren()) do
+        if child:IsA("Frame") or child:IsA("TextLabel") then
+            child:Destroy()
+        end
+    end
+    table.clear(State.activeStealButtons)
+
+    if #items == 0 then
+        local emptyLbl = Instance.new("TextLabel")
+        emptyLbl.Size = UDim2.new(1, 0, 0, 42)
+        emptyLbl.BackgroundColor3 = UI_THEME.RowBg
+        emptyLbl.Text = "Chưa có trứng. Bấm 'Load Eggs' để tải."
+        emptyLbl.TextColor3 = UI_THEME.TextSub
+        emptyLbl.Font = Enum.Font.Gotham
+        emptyLbl.TextSize = 10.5
+        emptyLbl.Parent = EggScroll
+        addCorner(emptyLbl, 6)
+        return
+    end
+
+    for _, item in ipairs(items) do
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 44)
+        row.BackgroundColor3 = UI_THEME.RowBg
+        row.BorderSizePixel = 0
+        row.Parent = EggScroll
+        addCorner(row, 6)
+        addStroke(row, UI_THEME.PanelStroke, 1)
+
+        local iconBox = Instance.new("Frame")
+        iconBox.Size = UDim2.fromOffset(34, 34)
+        iconBox.Position = UDim2.new(0, 5, 0.5, -17)
+        iconBox.BackgroundColor3 = UI_THEME.RowIconBg
+        iconBox.BorderSizePixel = 0
+        iconBox.Parent = row
+        addCorner(iconBox, 6)
+
+        local iconImg = Instance.new("ImageLabel")
+        iconImg.Size = UDim2.fromOffset(28, 28)
+        iconImg.Position = UDim2.new(0.5, -14, 0.5, -14)
+        iconImg.BackgroundTransparency = 1
+        iconImg.Image = (item.Icon and item.Icon ~= "") and item.Icon or normalizeAssetId(UI_ASSETS.DefaultEggIcon)
+        iconImg.ScaleType = Enum.ScaleType.Fit
+        iconImg.Parent = iconBox
+
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Size = UDim2.new(1, -102, 0, 14)
+        nameLbl.Position = UDim2.fromOffset(44, 4)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.Text = item.Name
+        nameLbl.TextColor3 = UI_THEME.TextWhite
+        nameLbl.Font = Enum.Font.GothamBold
+        nameLbl.TextSize = 11
+        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        nameLbl.Parent = row
+
+        local rateLbl = Instance.new("TextLabel")
+        rateLbl.Size = UDim2.new(1, -102, 0, 12)
+        rateLbl.Position = UDim2.fromOffset(44, 17)
+        rateLbl.BackgroundTransparency = 1
+        rateLbl.Text = formatMoneyPerSec(item.Value)
+        rateLbl.TextColor3 = UI_THEME.TextMoneyGreen
+        rateLbl.Font = Enum.Font.GothamBold
+        rateLbl.TextSize = 9.5
+        rateLbl.TextXAlignment = Enum.TextXAlignment.Left
+        rateLbl.Parent = row
+
+        local metaLbl = Instance.new("TextLabel")
+        metaLbl.Size = UDim2.new(1, -102, 0, 12)
+        metaLbl.Position = UDim2.fromOffset(44, 29)
+        metaLbl.BackgroundTransparency = 1
+        metaLbl.Text = string.format("x%.2f • %s", item.Scale or 1, item.Rarity)
+        metaLbl.TextColor3 = UI_THEME.TextStatBlue
+        metaLbl.Font = Enum.Font.GothamBold
+        metaLbl.TextSize = 9
+        metaLbl.TextXAlignment = Enum.TextXAlignment.Left
+        metaLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        metaLbl.Parent = row
+
+        local isTargeted = (State.targetedSpecificUid == item.Uid)
+        local stealBtn = Instance.new("TextButton")
+        stealBtn.Size = UDim2.fromOffset(50, 26)
+        stealBtn.Position = UDim2.new(1, -56, 0.5, -13)
+        stealBtn.BackgroundColor3 = isTargeted and UI_THEME.StopBtnBg or UI_THEME.StealBtnBg
+        stealBtn.Text = isTargeted and "Stop" or "Steal"
+        stealBtn.TextColor3 = UI_THEME.TextWhite
+        stealBtn.Font = Enum.Font.GothamBold
+        stealBtn.TextSize = 10.5
+        stealBtn.AutoButtonColor = false
+        stealBtn.Parent = row
+        addCorner(stealBtn, 6)
+        addStroke(stealBtn, UI_THEME.PanelStroke, 1)
+
+        State.activeStealButtons[item.Uid] = stealBtn
+
+        stealBtn.MouseButton1Click:Connect(function()
+            if State.targetedSpecificUid == item.Uid then
+                abortStealRoutine()
+            else
+                if State.isStealingActive then abortStealRoutine() end
+                State.targetedSpecificUid = item.Uid
+                State.blacklistedEggs[item.Uid] = nil
+                resetStealButtons()
+                stealBtn.BackgroundColor3 = UI_THEME.StopBtnBg
+                stealBtn.Text = "Stop"
+            end
+        end)
+    end
+end
+
+local isLoadingEggs = false
+LoadEggBtn.MouseButton1Click:Connect(function()
+    if isLoadingEggs then return end
+    isLoadingEggs = true
+    LoadEggBtn.Text = "Loading..."
+    LoadEggBtn.BackgroundColor3 = UI_THEME.LoadGreenDark
+
+    table.clear(State.blacklistedEggs)
+    pcall(function() renderStealPanel(true) end)
+
+    task.wait(0.25)
+    LoadEggBtn.Text = "Load Eggs"
+    LoadEggBtn.BackgroundColor3 = UI_THEME.LoadGreen
+    isLoadingEggs = false
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(1.0)
+        if not isLoadingEggs then
+            pcall(function() renderStealPanel(false) end)
+        end
+    end
+end)
+
+ToggleFloatBtn.MouseButton1Click:Connect(function()
+    PanelFrame.Visible = not PanelFrame.Visible
+    if PanelFrame.Visible then
+        pcall(function() renderStealPanel(false) end)
+    end
+end)
+
+ExitArrowBtn.MouseButton1Click:Connect(function()
+    PanelFrame.Visible = false
+end)
+
+task.defer(function()
+    pcall(function() renderStealPanel(true) end)
+end)
