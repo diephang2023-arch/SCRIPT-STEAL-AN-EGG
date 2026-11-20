@@ -1,0 +1,1084 @@
+-- ============================================================
+-- GAU MODS - ANTI GUARD TOGGLE WIDGET (KÉO THẢ)
+-- ============================================================
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Mouse = LocalPlayer:GetMouse()
+
+-- Thay ID ảnh Roblox của bạn vào đây
+local ICON_ID = "rbxassetid://84033903679356"
+
+local State = {
+    AntiGuard = false,
+    RouteSpeed = 0.005
+}
+
+local TeleportPoints = {
+    Vector3.new(500.62, 241.28, -366.64),
+    Vector3.new(504.45, 155.80, -366.35),
+    Vector3.new(508.30, 70.28, -366.03),
+    Vector3.new(513.86, 70.28, -366.25),
+    Vector3.new(519.43, 70.28, -366.47),
+    Vector3.new(524.32, 70.28, -366.59),
+    Vector3.new(529.22, 70.28, -366.71),
+    Vector3.new(538.01, 70.28, -365.55),
+    Vector3.new(546.80, 70.28, -364.40)
+}
+
+-- Xóa giao diện cũ nếu đã tồn tại
+local oldGui = CoreGui:FindFirstChild("GauModsAntiGuard") or PlayerGui:FindFirstChild("GauModsAntiGuard")
+if oldGui then oldGui:Destroy() end
+
+local GuiParent = (gethui and gethui()) or PlayerGui
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "GauModsAntiGuard"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent = GuiParent
+
+-- Khung chính nằm ngang giống trong ảnh
+local MainCard = Instance.new("Frame")
+MainCard.Name = "MainCard"
+MainCard.AnchorPoint = Vector2.new(0.5, 0.5)
+MainCard.Position = UDim2.new(0.5, 0, 0.68, 0) -- Vị trí ngay phía trên thanh công cụ
+MainCard.Size = UDim2.fromOffset(220, 48)
+MainCard.BackgroundColor3 = Color3.fromRGB(36, 33, 28)
+MainCard.BackgroundTransparency = 0.12
+MainCard.BorderSizePixel = 0
+MainCard.Parent = ScreenGui
+
+local CardCorner = Instance.new("UICorner")
+CardCorner.CornerRadius = UDim.new(0, 12)
+CardCorner.Parent = MainCard
+
+local CardStroke = Instance.new("UIStroke")
+CardStroke.Color = Color3.fromRGB(85, 78, 65)
+CardStroke.Thickness = 1.2
+CardStroke.Transparency = 0.35
+CardStroke.Parent = MainCard
+
+-- Khung chứa Icon bên trái
+local IconBox = Instance.new("Frame")
+IconBox.Name = "IconBox"
+IconBox.Position = UDim2.fromOffset(7, 7)
+IconBox.Size = UDim2.fromOffset(34, 34)
+IconBox.BackgroundColor3 = Color3.fromRGB(22, 18, 16)
+IconBox.BorderSizePixel = 0
+IconBox.Parent = MainCard
+
+local IconBoxCorner = Instance.new("UICorner")
+IconBoxCorner.CornerRadius = UDim.new(0, 8)
+IconBoxCorner.Parent = IconBox
+
+local IconImage = Instance.new("ImageLabel")
+IconImage.Name = "IconImage"
+IconImage.AnchorPoint = Vector2.new(0.5, 0.5)
+IconImage.Position = UDim2.fromScale(0.5, 0.5)
+IconImage.Size = UDim2.fromOffset(28, 28)
+IconImage.BackgroundTransparency = 1
+IconImage.Image = ICON_ID
+IconImage.ScaleType = Enum.ScaleType.Fit
+IconImage.Parent = IconBox
+
+local IconImageCorner = Instance.new("UICorner")
+IconImageCorner.CornerRadius = UDim.new(0, 6)
+IconImageCorner.Parent = IconImage
+
+-- Dòng chữ trên: Gau Mods
+local TopText = Instance.new("TextLabel")
+TopText.Name = "TopText"
+TopText.BackgroundTransparency = 1
+TopText.Position = UDim2.fromOffset(48, 7)
+TopText.Size = UDim2.new(1, -104, 0, 14)
+TopText.Font = Enum.Font.GothamBold
+TopText.Text = "Gau Mods"
+TopText.TextColor3 = Color3.fromRGB(255, 165, 65)
+TopText.TextSize = 11
+TopText.TextXAlignment = Enum.TextXAlignment.Left
+TopText.Parent = MainCard
+
+-- Dòng chữ dưới: Anti Guard
+local BottomText = Instance.new("TextLabel")
+BottomText.Name = "BottomText"
+BottomText.BackgroundTransparency = 1
+BottomText.Position = UDim2.fromOffset(48, 21)
+BottomText.Size = UDim2.new(1, -104, 0, 19)
+BottomText.Font = Enum.Font.GothamBlack
+BottomText.Text = "Anti Guard"
+BottomText.TextColor3 = Color3.fromRGB(255, 255, 255)
+BottomText.TextSize = 14
+BottomText.TextXAlignment = Enum.TextXAlignment.Left
+BottomText.Parent = MainCard
+
+-- Công tắc gạt (Toggle Switch) bên phải
+local SwitchTrack = Instance.new("TextButton")
+SwitchTrack.Name = "SwitchTrack"
+SwitchTrack.AnchorPoint = Vector2.new(1, 0.5)
+SwitchTrack.Position = UDim2.new(1, -10, 0.5, 0)
+SwitchTrack.Size = UDim2.fromOffset(44, 22)
+SwitchTrack.BackgroundColor3 = Color3.fromRGB(68, 65, 60) -- Màu khi TẮT
+SwitchTrack.BorderSizePixel = 0
+SwitchTrack.Text = ""
+SwitchTrack.AutoButtonColor = false
+SwitchTrack.Parent = MainCard
+
+local TrackCorner = Instance.new("UICorner")
+TrackCorner.CornerRadius = UDim.new(1, 0)
+TrackCorner.Parent = SwitchTrack
+
+local SwitchKnob = Instance.new("Frame")
+SwitchKnob.Name = "SwitchKnob"
+SwitchKnob.AnchorPoint = Vector2.new(0, 0.5)
+SwitchKnob.Position = UDim2.new(0, 3, 0.5, 0) -- Vị trí TẮT (bên trái)
+SwitchKnob.Size = UDim2.fromOffset(16, 16)
+SwitchKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+SwitchKnob.BorderSizePixel = 0
+SwitchKnob.Parent = SwitchTrack
+
+local KnobCorner = Instance.new("UICorner")
+KnobCorner.CornerRadius = UDim.new(1, 0)
+KnobCorner.Parent = SwitchKnob
+
+-- Hiệu ứng chuyển đổi Bật / Tắt
+local function setToggleState(enabled)
+    State.AntiGuard = enabled
+    local info = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    if enabled then
+        -- Màu cam đỏ nổi bật giống trong ảnh khi BẬT
+        TweenService:Create(SwitchTrack, info, {BackgroundColor3 = Color3.fromRGB(235, 95, 55)}):Play()
+        TweenService:Create(SwitchKnob, info, {Position = UDim2.new(1, -19, 0.5, 0)}):Play()
+        TweenService:Create(CardStroke, info, {Color = Color3.fromRGB(235, 95, 55), Transparency = 0.1}):Play()
+    else
+        TweenService:Create(SwitchTrack, info, {BackgroundColor3 = Color3.fromRGB(68, 65, 60)}):Play()
+        TweenService:Create(SwitchKnob, info, {Position = UDim2.new(0, 3, 0.5, 0)}):Play()
+        TweenService:Create(CardStroke, info, {Color = Color3.fromRGB(85, 78, 65), Transparency = 0.35}):Play()
+    end
+end
+
+SwitchTrack.Activated:Connect(function()
+    setToggleState(not State.AntiGuard)
+end)
+
+-- Kéo thả toàn bộ thanh widget (hỗ trợ cả cảm ứng và chuột)
+local dragging = false
+local dragInput = nil
+local dragStart = nil
+local startPos = nil
+
+MainCard.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainCard.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+MainCard.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        MainCard.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- Logic kích hoạt Anti Guard khi chạm ProximityPrompt
+local isExecuting = false
+ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
+    if player ~= LocalPlayer then return end
+    if not State.AntiGuard or isExecuting then return end
+
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    isExecuting = true
+    for _, pos in ipairs(TeleportPoints) do
+        if not State.AntiGuard or not root.Parent then
+            break
+        end
+        root.CFrame = CFrame.new(pos)
+        task.wait(State.RouteSpeed)
+    end
+    isExecuting = false
+end)
+
+-- ============================================================
+-- PHẦN THÊM 1: LẤY VẬT PHẨM NHANH KHI CHẠM NÚT / TƯƠNG TÁC
+-- ============================================================
+local function applyInstantHold(prompt)
+    if prompt and prompt:IsA("ProximityPrompt") then
+        pcall(function()
+            prompt.HoldDuration = 0
+        end)
+    end
+end
+
+for _, desc in ipairs(Workspace:GetDescendants()) do
+    if desc:IsA("ProximityPrompt") then
+        applyInstantHold(desc)
+    end
+end
+
+Workspace.DescendantAdded:Connect(function(desc)
+    if desc:IsA("ProximityPrompt") then
+        task.defer(applyInstantHold, desc)
+    end
+end)
+
+local fastGrabBusy = false
+ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
+    if player and player ~= LocalPlayer then return end
+    if fastGrabBusy or not prompt or not prompt.Enabled then return end
+    fastGrabBusy = true
+
+    pcall(function()
+        prompt.HoldDuration = 0
+        if fireproximityprompt then
+            fireproximityprompt(prompt)
+        else
+            prompt:InputHoldBegin()
+            task.wait(0.02)
+            prompt:InputHoldEnd()
+        end
+    end)
+
+    task.delay(0.05, function()
+        fastGrabBusy = false
+    end)
+end)
+
+-- ============================================================
+-- PHẦN THÊM 2: CÓ TRỨNG LÀ MANG VỀ NHÀ NGAY KHI BẬT CÔNG TẮC
+-- ============================================================
+local HOME_POSITION = Vector3.new(0, 5, 0)
+local RETURN_DELAY = 0.05
+local RETURN_COOLDOWN = 1.5
+local lastReturnTime = 0
+local isReturningHome = false
+
+local function hasEggInHandOrBag()
+    local char = LocalPlayer.Character
+    if char then
+        for _, obj in ipairs(char:GetChildren()) do
+            local nameLower = string.lower(obj.Name)
+            if (obj:IsA("Tool") or obj:IsA("Model") or obj:IsA("BasePart")) and string.find(nameLower, "egg", 1, true) then
+                return true
+            end
+        end
+        for _, attrVal in pairs(char:GetAttributes()) do
+            if type(attrVal) == "string" and string.find(string.lower(attrVal), "egg", 1, true) then
+                return true
+            end
+        end
+    end
+
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if string.find(string.lower(item.Name), "egg", 1, true) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function bringEggHomeNow()
+    if isReturningHome then return end
+    if os.clock() - lastReturnTime < RETURN_COOLDOWN then return end
+
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not char or not root then return end
+
+    isReturningHome = true
+    lastReturnTime = os.clock()
+
+    pcall(function()
+        task.wait(RETURN_DELAY)
+        if State.AntiGuard and root.Parent then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            root.CFrame = CFrame.new(HOME_POSITION + Vector3.new(0, 2, 0))
+        end
+    end)
+
+    task.delay(0.3, function()
+        isReturningHome = false
+    end)
+end
+
+task.spawn(function()
+    while true do
+        if State.AntiGuard and not isExecuting and not isReturningHome then
+            if hasEggInHandOrBag() then
+                bringEggHomeNow()
+            end
+        end
+        task.wait(0.08)
+    end
+end)
+
+-- ============================================================
+-- PHẦN THÊM 3: NHẮM VÀO BẪY KHI CẦM TRỨNG (GIỮ AN TOÀN MAP PET)
+-- ============================================================
+local TRAP_KEYWORDS = {
+    "trap", "bẫy", "bay", "spike", "mine", "snare",
+    "laser", "shock", "net", "cage", "bear", "hazard"
+}
+
+local WALL_KEYWORDS = {
+    "wall", "tường", "tuong", "floor", "sàn", "san",
+    "ground", "pet", "pen", "fence", "gate", "door", "building", "house"
+}
+
+local neutralizedCache = {}
+local lastEggRef = nil
+
+local function isWallOrPetMapPart(obj)
+    if not obj then return false end
+    local cur = obj
+    for _ = 1, 6 do
+        if not cur or cur == Workspace then break end
+        local n = string.lower(tostring(cur.Name or ""))
+        for _, kw in ipairs(WALL_KEYWORDS) do
+            if string.find(n, kw, 1, true) then
+                return true
+            end
+        end
+        cur = cur.Parent
+    end
+    return false
+end
+
+local function getHeldEggTool()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    for _, child in ipairs(char:GetChildren()) do
+        if child:IsA("Tool") and string.find(string.lower(child.Name), "egg", 1, true) then
+            return child
+        end
+    end
+    return nil
+end
+
+local function findTrapTarget(inst)
+    if not inst or isWallOrPetMapPart(inst) then return nil end
+    local cur = inst
+    for _ = 1, 5 do
+        if not cur or cur == Workspace then break end
+        local n = string.lower(tostring(cur.Name or ""))
+        for _, kw in ipairs(TRAP_KEYWORDS) do
+            if string.find(n, kw, 1, true) then
+                return cur
+            end
+        end
+        cur = cur.Parent
+    end
+    return nil
+end
+
+local function getAimedObject()
+    if Mouse and Mouse.Target then
+        return Mouse.Target
+    end
+
+    local cam = Workspace.CurrentCamera
+    if not cam then return nil end
+
+    local vp = cam.ViewportSize
+    local ray = cam:ViewportPointToRay(vp.X * 0.5, vp.Y * 0.5)
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    if LocalPlayer.Character then
+        params.FilterDescendantsInstances = { LocalPlayer.Character }
+    end
+
+    local hit = Workspace:Raycast(ray.Origin, ray.Direction * 150, params)
+    return hit and hit.Instance or nil
+end
+
+local function neutralizeTrapPart(obj)
+    if not obj or isWallOrPetMapPart(obj) then return end
+    pcall(function()
+        if obj:IsA("BasePart") then
+            pcall(function() obj.CanTouch = false end)
+            for _, child in ipairs(obj:GetChildren()) do
+                if child:IsA("TouchTransmitter") then
+                    child:Destroy()
+                end
+            end
+        elseif obj:IsA("TouchTransmitter") then
+            obj:Destroy()
+        elseif obj:IsA("ProximityPrompt") then
+            obj.Enabled = false
+        end
+    end)
+end
+
+RunService.Heartbeat:Connect(function()
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not char or not hum then return end
+
+    local heldEgg = getHeldEggTool()
+    if heldEgg then
+        lastEggRef = heldEgg
+    end
+
+    local aimed = getAimedObject()
+    if not aimed then return end
+
+    local trapObj = findTrapTarget(aimed)
+    if trapObj then
+        if not neutralizedCache[trapObj] then
+            neutralizedCache[trapObj] = true
+            for _, d in ipairs(trapObj:GetDescendants()) do
+                neutralizeTrapPart(d)
+            end
+            neutralizeTrapPart(trapObj)
+        end
+
+        if lastEggRef and lastEggRef.Parent == LocalPlayer:FindFirstChild("Backpack") then
+            pcall(function()
+                hum:EquipTool(lastEggRef)
+            end)
+        end
+    end
+end)
+
+-- ============================================================
+-- GAU MODS - SMOOTH SPEED SLIDER (CHỐNG GIẬT & GIỮ KHI CHẾT)
+-- ============================================================
+local SpeedConfig = {
+    Enabled = false,
+    MinSpeed = 16,
+    MaxSpeed = 95,
+    CurrentSpeed = 42
+}
+
+local SpeedFrame = Instance.new("Frame")
+SpeedFrame.Name = "SpeedFrame"
+SpeedFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+SpeedFrame.Position = UDim2.new(0.5, 0, 0.25, 0)
+SpeedFrame.Size = UDim2.fromOffset(240, 88)
+SpeedFrame.BackgroundColor3 = Color3.fromRGB(24, 20, 30)
+SpeedFrame.BackgroundTransparency = 0.08
+SpeedFrame.BorderSizePixel = 0
+SpeedFrame.Parent = ScreenGui
+
+local SpeedCorner = Instance.new("UICorner")
+SpeedCorner.CornerRadius = UDim.new(0, 12)
+SpeedCorner.Parent = SpeedFrame
+
+local SpeedStroke = Instance.new("UIStroke")
+SpeedStroke.Color = Color3.fromRGB(255, 45, 145)
+SpeedStroke.Thickness = 1.6
+SpeedStroke.Parent = SpeedFrame
+
+local SpeedTitle = Instance.new("TextLabel")
+SpeedTitle.BackgroundTransparency = 1
+SpeedTitle.Position = UDim2.fromOffset(12, 8)
+SpeedTitle.Size = UDim2.new(0.55, 0, 0, 20)
+SpeedTitle.Font = Enum.Font.GothamBlack
+SpeedTitle.Text = "SPEED BOOST"
+SpeedTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedTitle.TextSize = 13
+SpeedTitle.TextXAlignment = Enum.TextXAlignment.Left
+SpeedTitle.Parent = SpeedFrame
+
+local SpeedValLabel = Instance.new("TextLabel")
+SpeedValLabel.BackgroundTransparency = 1
+SpeedValLabel.Position = UDim2.new(0.5, 0, 0, 8)
+SpeedValLabel.Size = UDim2.new(0.5, -62, 0, 20)
+SpeedValLabel.Font = Enum.Font.GothamBold
+SpeedValLabel.Text = tostring(SpeedConfig.CurrentSpeed)
+SpeedValLabel.TextColor3 = Color3.fromRGB(0, 255, 240)
+SpeedValLabel.TextSize = 14
+SpeedValLabel.TextXAlignment = Enum.TextXAlignment.Right
+SpeedValLabel.Parent = SpeedFrame
+
+local SpeedToggleBtn = Instance.new("TextButton")
+SpeedToggleBtn.AnchorPoint = Vector2.new(1, 0)
+SpeedToggleBtn.Position = UDim2.new(1, -10, 0, 8)
+SpeedToggleBtn.Size = UDim2.fromOffset(44, 22)
+SpeedToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 55, 70)
+SpeedToggleBtn.Text = ""
+SpeedToggleBtn.AutoButtonColor = false
+SpeedToggleBtn.Parent = SpeedFrame
+
+local SpeedToggleCorner = Instance.new("UICorner")
+SpeedToggleCorner.CornerRadius = UDim.new(1, 0)
+SpeedToggleCorner.Parent = SpeedToggleBtn
+
+local SpeedToggleKnob = Instance.new("Frame")
+SpeedToggleKnob.AnchorPoint = Vector2.new(0, 0.5)
+SpeedToggleKnob.Position = UDim2.new(0, 3, 0.5, 0)
+SpeedToggleKnob.Size = UDim2.fromOffset(16, 16)
+SpeedToggleKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+SpeedToggleKnob.Parent = SpeedToggleBtn
+
+local SpeedKnobCorner = Instance.new("UICorner")
+SpeedKnobCorner.CornerRadius = UDim.new(1, 0)
+SpeedKnobCorner.Parent = SpeedToggleKnob
+
+local SliderBg = Instance.new("Frame")
+SliderBg.Position = UDim2.fromOffset(12, 44)
+SliderBg.Size = UDim2.new(1, -24, 0, 12)
+SliderBg.BackgroundColor3 = Color3.fromRGB(45, 38, 56)
+SliderBg.BorderSizePixel = 0
+SliderBg.Parent = SpeedFrame
+
+local SliderBgCorner = Instance.new("UICorner")
+SliderBgCorner.CornerRadius = UDim.new(1, 0)
+SliderBgCorner.Parent = SliderBg
+
+local SliderFill = Instance.new("Frame")
+SliderFill.Size = UDim2.new((SpeedConfig.CurrentSpeed - SpeedConfig.MinSpeed) / (SpeedConfig.MaxSpeed - SpeedConfig.MinSpeed), 0, 1, 0)
+SliderFill.BackgroundColor3 = Color3.fromRGB(255, 45, 145)
+SliderFill.BorderSizePixel = 0
+SliderFill.Parent = SliderBg
+
+local SliderFillCorner = Instance.new("UICorner")
+SliderFillCorner.CornerRadius = UDim.new(1, 0)
+SliderFillCorner.Parent = SliderFill
+
+local SliderGrad = Instance.new("UIGradient")
+SliderGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 240)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 45, 145))
+})
+SliderGrad.Parent = SliderFill
+
+local SliderThumb = Instance.new("Frame")
+SliderThumb.AnchorPoint = Vector2.new(0.5, 0.5)
+SliderThumb.Position = UDim2.new(SliderFill.Size.X.Scale, 0, 0.5, 0)
+SliderThumb.Size = UDim2.fromOffset(18, 18)
+SliderThumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+SliderThumb.BorderSizePixel = 0
+SliderThumb.Parent = SliderBg
+
+local ThumbCorner = Instance.new("UICorner")
+ThumbCorner.CornerRadius = UDim.new(1, 0)
+ThumbCorner.Parent = SliderThumb
+
+local SliderHitbox = Instance.new("TextButton")
+SliderHitbox.Position = UDim2.new(0, -5, 0, -10)
+SliderHitbox.Size = UDim2.new(1, 10, 1, 20)
+SliderHitbox.BackgroundTransparency = 1
+SliderHitbox.Text = ""
+SliderHitbox.Parent = SliderBg
+
+local SpeedSub = Instance.new("TextLabel")
+SpeedSub.BackgroundTransparency = 1
+SpeedSub.Position = UDim2.fromOffset(12, 64)
+SpeedSub.Size = UDim2.new(1, -24, 0, 16)
+SpeedSub.Font = Enum.Font.Gotham
+SpeedSub.Text = "Chống giật • Giữ tốc độ khi cầm đồ & hồi sinh"
+SpeedSub.TextColor3 = Color3.fromRGB(175, 165, 190)
+SpeedSub.TextSize = 10
+SpeedSub.TextXAlignment = Enum.TextXAlignment.Left
+SpeedSub.Parent = SpeedFrame
+
+local sliding = false
+local function updateSliderFromInput(inputPosX)
+    local absPos = SliderBg.AbsolutePosition.X
+    local absSize = SliderBg.AbsoluteSize.X
+    if absSize <= 0 then return end
+
+    local percent = math.clamp((inputPosX - absPos) / absSize, 0, 1)
+    SpeedConfig.CurrentSpeed = math.floor(SpeedConfig.MinSpeed + percent * (SpeedConfig.MaxSpeed - SpeedConfig.MinSpeed))
+
+    SliderFill.Size = UDim2.new(percent, 0, 1, 0)
+    SliderThumb.Position = UDim2.new(percent, 0, 0.5, 0)
+    SpeedValLabel.Text = tostring(SpeedConfig.CurrentSpeed)
+end
+
+SliderHitbox.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliding = true
+        updateSliderFromInput(input.Position.X)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if sliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        updateSliderFromInput(input.Position.X)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliding = false
+    end
+end)
+
+local function setSpeedEnabled(state)
+    SpeedConfig.Enabled = state
+    local tweenInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+    if state then
+        TweenService:Create(SpeedToggleBtn, tweenInfo, {BackgroundColor3 = Color3.fromRGB(255, 45, 145)}):Play()
+        TweenService:Create(SpeedToggleKnob, tweenInfo, {Position = UDim2.new(1, -19, 0.5, 0)}):Play()
+        TweenService:Create(SpeedStroke, tweenInfo, {Color = Color3.fromRGB(0, 255, 240)}):Play()
+    else
+        TweenService:Create(SpeedToggleBtn, tweenInfo, {BackgroundColor3 = Color3.fromRGB(60, 55, 70)}):Play()
+        TweenService:Create(SpeedToggleKnob, tweenInfo, {Position = UDim2.new(0, 3, 0.5, 0)}):Play()
+        TweenService:Create(SpeedStroke, tweenInfo, {Color = Color3.fromRGB(255, 45, 145)}):Play()
+
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.WalkSpeed = 16
+        end
+    end
+end
+
+SpeedToggleBtn.Activated:Connect(function()
+    setSpeedEnabled(not SpeedConfig.Enabled)
+end)
+
+local draggingSpeed = false
+local speedDragStart, speedStartPos
+
+SpeedFrame.InputBegan:Connect(function(input)
+    if sliding then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingSpeed = true
+        speedDragStart = input.Position
+        speedStartPos = SpeedFrame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingSpeed and not sliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - speedDragStart
+        SpeedFrame.Position = UDim2.new(
+            speedStartPos.X.Scale,
+            speedStartPos.X.Offset + delta.X,
+            speedStartPos.Y.Scale,
+            speedStartPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingSpeed = false
+    end
+end)
+
+local function hasObstacleAhead(char, origin, dirUnit, distance)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = { char }
+
+    local hit = Workspace:Raycast(origin, dirUnit * distance, params)
+    if hit and hit.Instance and hit.Instance.CanCollide then
+        return true
+    end
+    return false
+end
+
+RunService.Heartbeat:Connect(function()
+    if not SpeedConfig.Enabled then return end
+
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+
+    if not char or not hum or not root or hum.Health <= 0 then return end
+
+    if hum.WalkSpeed ~= SpeedConfig.CurrentSpeed then
+        hum.WalkSpeed = SpeedConfig.CurrentSpeed
+    end
+
+    local moveDir = hum.MoveDirection
+    if moveDir.Magnitude > 0.05 and SpeedConfig.CurrentSpeed > 16 then
+        local flatDir = Vector3.new(moveDir.X, 0, moveDir.Z)
+        if flatDir.Magnitude > 0.01 then
+            flatDir = flatDir.Unit
+            local blocked = hasObstacleAhead(char, root.Position, flatDir, 3.2)
+
+            if not blocked then
+                local currentVel = root.AssemblyLinearVelocity
+                local desiredVel = flatDir * SpeedConfig.CurrentSpeed
+                local blendedVel = currentVel:Lerp(Vector3.new(desiredVel.X, currentVel.Y, desiredVel.Z), 0.35)
+                root.AssemblyLinearVelocity = blendedVel
+            end
+        end
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    local hum = newChar:WaitForChild("Humanoid", 5)
+    if hum and SpeedConfig.Enabled then
+        task.wait(0.1)
+        hum.WalkSpeed = SpeedConfig.CurrentSpeed
+    end
+end)
+
+-- ============================================================
+-- GAU MODS - INFINITE JUMP / AIR HOP (NHẢY LIÊN TỤC ĐỂ BAY)
+-- ============================================================
+local JumpConfig = {
+    Enabled = false,
+    JumpPower = 52,
+    MaxFallSpeed = -35,
+    Cooldown = 0.14
+}
+
+local JumpFrame = Instance.new("Frame")
+JumpFrame.Name = "JumpFrame"
+JumpFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+JumpFrame.Position = UDim2.new(0.5, 0, 0.38, 0)
+JumpFrame.Size = UDim2.fromOffset(220, 62)
+JumpFrame.BackgroundColor3 = Color3.fromRGB(24, 20, 30)
+JumpFrame.BackgroundTransparency = 0.08
+JumpFrame.BorderSizePixel = 0
+JumpFrame.Parent = ScreenGui
+
+local JumpCorner = Instance.new("UICorner")
+JumpCorner.CornerRadius = UDim.new(0, 12)
+JumpCorner.Parent = JumpFrame
+
+local JumpStroke = Instance.new("UIStroke")
+JumpStroke.Color = Color3.fromRGB(255, 165, 65)
+JumpStroke.Thickness = 1.5
+JumpStroke.Parent = JumpFrame
+
+local JumpTitle = Instance.new("TextLabel")
+JumpTitle.BackgroundTransparency = 1
+JumpTitle.Position = UDim2.fromOffset(12, 8)
+JumpTitle.Size = UDim2.new(1, -68, 0, 18)
+JumpTitle.Font = Enum.Font.GothamBlack
+JumpTitle.Text = "AIR JUMP / FLY"
+JumpTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+JumpTitle.TextSize = 13
+JumpTitle.TextXAlignment = Enum.TextXAlignment.Left
+JumpTitle.Parent = JumpFrame
+
+local JumpSub = Instance.new("TextLabel")
+JumpSub.BackgroundTransparency = 1
+JumpSub.Position = UDim2.fromOffset(12, 28)
+JumpSub.Size = UDim2.new(1, -24, 0, 24)
+JumpSub.Font = Enum.Font.Gotham
+JumpSub.Text = "Nhấn nhảy liên tục trên không để bay"
+JumpSub.TextColor3 = Color3.fromRGB(175, 165, 190)
+JumpSub.TextSize = 10
+JumpSub.TextXAlignment = Enum.TextXAlignment.Left
+JumpSub.Parent = JumpFrame
+
+local JumpToggleBtn = Instance.new("TextButton")
+JumpToggleBtn.AnchorPoint = Vector2.new(1, 0)
+JumpToggleBtn.Position = UDim2.new(1, -10, 0, 8)
+JumpToggleBtn.Size = UDim2.fromOffset(44, 22)
+JumpToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 55, 70)
+JumpToggleBtn.Text = ""
+JumpToggleBtn.AutoButtonColor = false
+JumpToggleBtn.Parent = JumpFrame
+
+local JumpToggleCorner = Instance.new("UICorner")
+JumpToggleCorner.CornerRadius = UDim.new(1, 0)
+JumpToggleCorner.Parent = JumpToggleBtn
+
+local JumpToggleKnob = Instance.new("Frame")
+JumpToggleKnob.AnchorPoint = Vector2.new(0, 0.5)
+JumpToggleKnob.Position = UDim2.new(0, 3, 0.5, 0)
+JumpToggleKnob.Size = UDim2.fromOffset(16, 16)
+JumpToggleKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+JumpToggleKnob.Parent = JumpToggleBtn
+
+local JumpKnobCorner = Instance.new("UICorner")
+JumpKnobCorner.CornerRadius = UDim.new(1, 0)
+JumpKnobCorner.Parent = JumpToggleKnob
+
+local function setAirJumpEnabled(state)
+    JumpConfig.Enabled = state
+    local info = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    if state then
+        TweenService:Create(JumpToggleBtn, info, {BackgroundColor3 = Color3.fromRGB(235, 95, 55)}):Play()
+        TweenService:Create(JumpToggleKnob, info, {Position = UDim2.new(1, -19, 0.5, 0)}):Play()
+        TweenService:Create(JumpStroke, info, {Color = Color3.fromRGB(235, 95, 55)}):Play()
+    else
+        TweenService:Create(JumpToggleBtn, info, {BackgroundColor3 = Color3.fromRGB(60, 55, 70)}):Play()
+        TweenService:Create(JumpToggleKnob, info, {Position = UDim2.new(0, 3, 0.5, 0)}):Play()
+        TweenService:Create(JumpStroke, info, {Color = Color3.fromRGB(255, 165, 65)}):Play()
+    end
+end
+
+JumpToggleBtn.Activated:Connect(function()
+    setAirJumpEnabled(not JumpConfig.Enabled)
+end)
+
+local draggingJump = false
+local jumpDragStart, jumpStartPos
+
+JumpFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingJump = true
+        jumpDragStart = input.Position
+        jumpStartPos = JumpFrame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingJump and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - jumpDragStart
+        JumpFrame.Position = UDim2.new(
+            jumpStartPos.X.Scale,
+            jumpStartPos.X.Offset + delta.X,
+            jumpStartPos.Y.Scale,
+            jumpStartPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingJump = false
+    end
+end)
+
+local lastJumpTime = 0
+local jumpHeld = false
+
+local function doAirHop()
+    if not JumpConfig.Enabled then return end
+    if os.clock() - lastJumpTime < JumpConfig.Cooldown then return end
+
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not char or not hum or not root or hum.Health <= 0 then return end
+
+    lastJumpTime = os.clock()
+
+    pcall(function()
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        local vel = root.AssemblyLinearVelocity
+        root.AssemblyLinearVelocity = Vector3.new(vel.X, JumpConfig.JumpPower, vel.Z)
+    end)
+end
+
+UserInputService.JumpRequest:Connect(function()
+    jumpHeld = true
+    doAirHop()
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.Touch then
+        jumpHeld = false
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if not JumpConfig.Enabled then return end
+
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not char or not hum or not root or hum.Health <= 0 then return end
+
+    if jumpHeld then
+        doAirHop()
+    end
+
+    local vel = root.AssemblyLinearVelocity
+    if vel.Y < JumpConfig.MaxFallSpeed then
+        root.AssemblyLinearVelocity = Vector3.new(vel.X, JumpConfig.MaxFallSpeed, vel.Z)
+    end
+end)
+
+-- ============================================================
+-- GAU MODS - NOCLIP (ĐI XUYÊN TƯỜNG)
+-- ============================================================
+local NoclipConfig = {
+    Enabled = false
+}
+
+local NoclipFrame = Instance.new("Frame")
+NoclipFrame.Name = "NoclipFrame"
+NoclipFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+NoclipFrame.Position = UDim2.new(0.5, 0, 0.52, 0)
+NoclipFrame.Size = UDim2.fromOffset(220, 62)
+NoclipFrame.BackgroundColor3 = Color3.fromRGB(24, 20, 30)
+NoclipFrame.BackgroundTransparency = 0.08
+NoclipFrame.BorderSizePixel = 0
+NoclipFrame.Parent = ScreenGui
+
+local NoclipCorner = Instance.new("UICorner")
+NoclipCorner.CornerRadius = UDim.new(0, 12)
+NoclipCorner.Parent = NoclipFrame
+
+local NoclipStroke = Instance.new("UIStroke")
+NoclipStroke.Color = Color3.fromRGB(0, 255, 240)
+NoclipStroke.Thickness = 1.5
+NoclipStroke.Parent = NoclipFrame
+
+local NoclipTitle = Instance.new("TextLabel")
+NoclipTitle.BackgroundTransparency = 1
+NoclipTitle.Position = UDim2.fromOffset(12, 8)
+NoclipTitle.Size = UDim2.new(1, -68, 0, 18)
+NoclipTitle.Font = Enum.Font.GothamBlack
+NoclipTitle.Text = "NOCLIP"
+NoclipTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+NoclipTitle.TextSize = 13
+NoclipTitle.TextXAlignment = Enum.TextXAlignment.Left
+NoclipTitle.Parent = NoclipFrame
+
+local NoclipSub = Instance.new("TextLabel")
+NoclipSub.BackgroundTransparency = 1
+NoclipSub.Position = UDim2.fromOffset(12, 28)
+NoclipSub.Size = UDim2.new(1, -24, 0, 24)
+NoclipSub.Font = Enum.Font.Gotham
+NoclipSub.Text = "Bật để đi xuyên tường & vật cản"
+NoclipSub.TextColor3 = Color3.fromRGB(175, 165, 190)
+NoclipSub.TextSize = 10
+NoclipSub.TextXAlignment = Enum.TextXAlignment.Left
+NoclipSub.Parent = NoclipFrame
+
+local NoclipToggleBtn = Instance.new("TextButton")
+NoclipToggleBtn.AnchorPoint = Vector2.new(1, 0)
+NoclipToggleBtn.Position = UDim2.new(1, -10, 0, 8)
+NoclipToggleBtn.Size = UDim2.fromOffset(44, 22)
+NoclipToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 55, 70)
+NoclipToggleBtn.Text = ""
+NoclipToggleBtn.AutoButtonColor = false
+NoclipToggleBtn.Parent = NoclipFrame
+
+local NoclipToggleCorner = Instance.new("UICorner")
+NoclipToggleCorner.CornerRadius = UDim.new(1, 0)
+NoclipToggleCorner.Parent = NoclipToggleBtn
+
+local NoclipToggleKnob = Instance.new("Frame")
+NoclipToggleKnob.AnchorPoint = Vector2.new(0, 0.5)
+NoclipToggleKnob.Position = UDim2.new(0, 3, 0.5, 0)
+NoclipToggleKnob.Size = UDim2.fromOffset(16, 16)
+NoclipToggleKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+NoclipToggleKnob.Parent = NoclipToggleBtn
+
+local NoclipKnobCorner = Instance.new("UICorner")
+NoclipKnobCorner.CornerRadius = UDim.new(1, 0)
+NoclipKnobCorner.Parent = NoclipToggleKnob
+
+local savedCollideParts = {}
+
+local function restoreCharacterCollisions()
+    for part, canCollide in pairs(savedCollideParts) do
+        if part and part.Parent then
+            pcall(function()
+                part.CanCollide = canCollide
+            end)
+        end
+    end
+    savedCollideParts = {}
+
+    local char = LocalPlayer.Character
+    if char then
+        for _, desc in ipairs(char:GetDescendants()) do
+            if desc:IsA("BasePart") and (desc.Name == "HumanoidRootPart" or desc.Name == "Torso" or desc.Name == "UpperTorso" or desc.Name == "LowerTorso") then
+                pcall(function()
+                    desc.CanCollide = true
+                end)
+            end
+        end
+    end
+end
+
+local function setNoclipEnabled(state)
+    NoclipConfig.Enabled = state
+    local info = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+    if state then
+        TweenService:Create(NoclipToggleBtn, info, {BackgroundColor3 = Color3.fromRGB(235, 95, 55)}):Play()
+        TweenService:Create(NoclipToggleKnob, info, {Position = UDim2.new(1, -19, 0.5, 0)}):Play()
+        TweenService:Create(NoclipStroke, info, {Color = Color3.fromRGB(235, 95, 55)}):Play()
+    else
+        TweenService:Create(NoclipToggleBtn, info, {BackgroundColor3 = Color3.fromRGB(60, 55, 70)}):Play()
+        TweenService:Create(NoclipToggleKnob, info, {Position = UDim2.new(0, 3, 0.5, 0)}):Play()
+        TweenService:Create(NoclipStroke, info, {Color = Color3.fromRGB(0, 255, 240)}):Play()
+        restoreCharacterCollisions()
+    end
+end
+
+NoclipToggleBtn.Activated:Connect(function()
+    setNoclipEnabled(not NoclipConfig.Enabled)
+end)
+
+local draggingNoclip = false
+local noclipDragStart, noclipStartPos
+
+NoclipFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingNoclip = true
+        noclipDragStart = input.Position
+        noclipStartPos = NoclipFrame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingNoclip and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - noclipDragStart
+        NoclipFrame.Position = UDim2.new(
+            noclipStartPos.X.Scale,
+            noclipStartPos.X.Offset + delta.X,
+            noclipStartPos.Y.Scale,
+            noclipStartPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingNoclip = false
+    end
+end)
+
+RunService.Stepped:Connect(function()
+    if not NoclipConfig.Enabled then return end
+
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    for _, desc in ipairs(char:GetDescendants()) do
+        if desc:IsA("BasePart") then
+            if savedCollideParts[desc] == nil then
+                savedCollideParts[desc] = desc.CanCollide
+            end
+            if desc.CanCollide then
+                desc.CanCollide = false
+            end
+        end
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function()
+    savedCollideParts = {}
+end)
