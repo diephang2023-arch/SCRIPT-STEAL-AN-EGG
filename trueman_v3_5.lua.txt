@@ -1,0 +1,923 @@
+-- ==========================================
+-- TRUE MAN HUB v3.5 | Pinkpunk Neon Enhanced
+-- Delta Executor | Anti-Ban + Working Only
+-- ==========================================
+local Players = game:GetService("Players")
+local RS = game:GetService("RunService")
+local CG = game:GetService("CoreGui")
+local TS = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local VU = game:GetService("VirtualUser")
+
+local P = Players.LocalPlayer
+local TG = "https://t.me/+bUsJ5gsBJ7MzNWE6"
+
+-- Thay ID ảnh Roblox của bạn vào đây
+local OPEN_ICON_ID = "rbxassetid://84033903679356"
+
+local COL = {
+    pink     = Color3.fromRGB(255, 20, 147),
+    pinkDark = Color3.fromRGB(165, 12, 95),
+    purple   = Color3.fromRGB(180, 0, 255),
+    cyan     = Color3.fromRGB(0, 255, 255),
+    blue     = Color3.fromRGB(30, 100, 255),
+    bg       = Color3.fromRGB(14, 5, 24),
+    panel    = Color3.fromRGB(28, 10, 44),
+    text     = Color3.fromRGB(255, 255, 255),
+    gray     = Color3.fromRGB(185, 140, 205),
+}
+
+local Rarities = {
+    Secret = {prio = 1},
+    Divine = {prio = 2},
+    Eternal = {prio = 3},
+    Cosmic = {prio = 4},
+}
+
+local F = {
+    Speed = false,
+    SpeedVal = 750,
+    InfiniteJump = false,
+    AntiRagdoll = false,
+    GodMode = true,
+    AntiAFK = false,
+    AntiBan = false,
+    AntiKick = false,
+    AutoBest = false,
+    AutoSel = false,
+    Filter = {Secret = true, Divine = true, Eternal = true, Cosmic = true},
+    Selected = {},
+}
+
+local function getGuiParent()
+    if gethui then
+        local ok, res = pcall(gethui)
+        if ok and res then return res end
+    end
+    local ok, res = pcall(function() return CG end)
+    if ok and res then return res end
+    return P:WaitForChild("PlayerGui")
+end
+
+local ParentGui = getGuiParent()
+
+for _, name in ipairs({"TMI", "TMN", "TMH"}) do
+    local old = ParentGui:FindFirstChild(name)
+    if old then old:Destroy() end
+end
+
+local function tween(obj, t, props)
+    local tw = TS:Create(obj, TweenInfo.new(t, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), props)
+    tw:Play()
+    return tw
+end
+
+-- ============ INTRO ============
+local ig = Instance.new("ScreenGui")
+ig.Name = "TMI"
+ig.ResetOnSpawn = false
+ig.IgnoreGuiInset = true
+ig.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ig.Parent = ParentGui
+
+local iBg = Instance.new("Frame", ig)
+iBg.Size = UDim2.fromScale(1, 1)
+iBg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+iBg.BackgroundTransparency = 1
+iBg.BorderSizePixel = 0
+
+local iCard = Instance.new("Frame", ig)
+iCard.AnchorPoint = Vector2.new(0.5, 0.5)
+iCard.Size = UDim2.fromOffset(310, 130)
+iCard.Position = UDim2.fromScale(0.5, 0.54)
+iCard.BackgroundColor3 = COL.bg
+iCard.BackgroundTransparency = 1
+iCard.BorderSizePixel = 0
+Instance.new("UICorner", iCard).CornerRadius = UDim.new(0, 14)
+
+local iCardStroke = Instance.new("UIStroke", iCard)
+iCardStroke.Color = COL.pink
+iCardStroke.Thickness = 2
+iCardStroke.Transparency = 1
+
+local iT = Instance.new("TextLabel", iCard)
+iT.Size = UDim2.new(1, -20, 0, 44)
+iT.Position = UDim2.new(0, 10, 0, 18)
+iT.BackgroundTransparency = 1
+iT.Text = "TRUE MAN HUB"
+iT.TextColor3 = COL.pink
+iT.Font = Enum.Font.GothamBlack
+iT.TextSize = 30
+iT.TextTransparency = 1
+
+local iStroke = Instance.new("UIStroke", iT)
+iStroke.Color = COL.cyan
+iStroke.Thickness = 1.5
+iStroke.Transparency = 1
+
+local iS = Instance.new("TextLabel", iCard)
+iS.Size = UDim2.new(1, -20, 0, 22)
+iS.Position = UDim2.new(0, 10, 0, 64)
+iS.BackgroundTransparency = 1
+iS.Text = "✦ Pinkpunk Neon v3.5 ✦"
+iS.TextColor3 = COL.cyan
+iS.Font = Enum.Font.GothamBold
+iS.TextSize = 12
+iS.TextTransparency = 1
+
+local iBarBg = Instance.new("Frame", iCard)
+iBarBg.Size = UDim2.new(0.76, 0, 0, 5)
+iBarBg.Position = UDim2.new(0.12, 0, 1, -22)
+iBarBg.BackgroundColor3 = COL.panel
+iBarBg.BackgroundTransparency = 1
+iBarBg.BorderSizePixel = 0
+Instance.new("UICorner", iBarBg).CornerRadius = UDim.new(1, 0)
+
+local iBarFill = Instance.new("Frame", iBarBg)
+iBarFill.Size = UDim2.new(0, 0, 1, 0)
+iBarFill.BackgroundColor3 = COL.pink
+iBarFill.BackgroundTransparency = 1
+iBarFill.BorderSizePixel = 0
+Instance.new("UICorner", iBarFill).CornerRadius = UDim.new(1, 0)
+
+task.spawn(function()
+    tween(iBg, 0.35, {BackgroundTransparency = 0.55})
+    tween(iCard, 0.4, {Position = UDim2.fromScale(0.5, 0.5), BackgroundTransparency = 0.08})
+    tween(iCardStroke, 0.4, {Transparency = 0.2})
+    tween(iT, 0.4, {TextTransparency = 0})
+    tween(iStroke, 0.4, {Transparency = 0.25})
+    tween(iS, 0.45, {TextTransparency = 0})
+    tween(iBarBg, 0.35, {BackgroundTransparency = 0})
+    tween(iBarFill, 0.35, {BackgroundTransparency = 0})
+    task.wait(0.15)
+    TS:Create(iBarFill, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Size = UDim2.fromScale(1, 1)}):Play()
+    task.wait(1.25)
+    tween(iCard, 0.35, {Position = UDim2.fromScale(0.5, 0.46), BackgroundTransparency = 1})
+    tween(iCardStroke, 0.3, {Transparency = 1})
+    tween(iT, 0.3, {TextTransparency = 1})
+    tween(iStroke, 0.3, {Transparency = 1})
+    tween(iS, 0.3, {TextTransparency = 1})
+    tween(iBarBg, 0.3, {BackgroundTransparency = 1})
+    tween(iBarFill, 0.3, {BackgroundTransparency = 1})
+    tween(iBg, 0.35, {BackgroundTransparency = 1})
+    task.wait(0.4)
+    if ig and ig.Parent then ig:Destroy() end
+end)
+
+-- ============ NOTIFICATION ============
+local ng = Instance.new("ScreenGui")
+ng.Name = "TMN"
+ng.ResetOnSpawn = false
+ng.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ng.Parent = ParentGui
+
+local function notify(txt, col)
+    col = col or COL.pink
+    local n = Instance.new("Frame", ng)
+    n.Size = UDim2.fromOffset(250, 40)
+    n.Position = UDim2.new(0.5, -125, 0, -60)
+    n.BackgroundColor3 = COL.bg
+    n.BackgroundTransparency = 1
+    n.BorderSizePixel = 0
+    Instance.new("UICorner", n).CornerRadius = UDim.new(0, 10)
+
+    local ns = Instance.new("UIStroke", n)
+    ns.Color = col
+    ns.Thickness = 1.8
+    ns.Transparency = 1
+
+    local l = Instance.new("TextLabel", n)
+    l.Size = UDim2.new(1, -14, 1, 0)
+    l.Position = UDim2.fromOffset(7, 0)
+    l.BackgroundTransparency = 1
+    l.Text = txt
+    l.TextColor3 = col
+    l.Font = Enum.Font.GothamBold
+    l.TextSize = 12
+    l.TextTransparency = 1
+
+    task.spawn(function()
+        tween(n, 0.35, {Position = UDim2.new(0.5, -125, 0, 22), BackgroundTransparency = 0.08})
+        tween(ns, 0.35, {Transparency = 0.15})
+        tween(l, 0.3, {TextTransparency = 0})
+        task.wait(2.0)
+        tween(n, 0.35, {Position = UDim2.new(0.5, -125, 0, -60), BackgroundTransparency = 1})
+        tween(ns, 0.3, {Transparency = 1})
+        tween(l, 0.3, {TextTransparency = 1})
+        task.wait(0.4)
+        if n and n.Parent then n:Destroy() end
+    end)
+end
+
+-- ============ GUI & NÚT MỞ MENU CÓ ID ẢNH ============
+local gui = Instance.new("ScreenGui")
+gui.Name = "TMH"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = ParentGui
+
+local oBtn = Instance.new("ImageButton", gui)
+oBtn.Name = "OpenMenuButton"
+oBtn.Size = UDim2.fromOffset(52, 52)
+oBtn.Position = UDim2.new(0, 14, 0.5, -26)
+oBtn.BackgroundColor3 = COL.panel
+oBtn.Image = OPEN_ICON_ID
+oBtn.ScaleType = Enum.ScaleType.Crop
+oBtn.AutoButtonColor = false
+oBtn.Active = true
+oBtn.ZIndex = 20
+Instance.new("UICorner", oBtn).CornerRadius = UDim.new(1, 0)
+
+local oS = Instance.new("UIStroke", oBtn)
+oS.Color = COL.cyan
+oS.Thickness = 2.2
+oS.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+local oGrad = Instance.new("UIGradient", oS)
+oGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, COL.pink),
+    ColorSequenceKeypoint.new(0.5, COL.cyan),
+    ColorSequenceKeypoint.new(1, COL.purple),
+}
+
+task.spawn(function()
+    while oBtn and oBtn.Parent do
+        local tw = TS:Create(oGrad, TweenInfo.new(1.8, Enum.EasingStyle.Linear), {Rotation = oGrad.Rotation + 360})
+        tw:Play()
+        tw.Completed:Wait()
+    end
+end)
+
+-- Kéo thả mượt cho nút mở menu mà không bị cướp click
+local oDragging = false
+local oDragInput = nil
+local oDragStart = nil
+local oStartPos = nil
+local oMoved = 0
+
+oBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        oDragging = true
+        oDragStart = input.Position
+        oStartPos = oBtn.Position
+        oMoved = 0
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                oDragging = false
+            end
+        end)
+    end
+end)
+
+oBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        oDragInput = input
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if input == oDragInput and oDragging then
+        local d = input.Position - oDragStart
+        oMoved = d.Magnitude
+        oBtn.Position = UDim2.new(oStartPos.X.Scale, oStartPos.X.Offset + d.X, oStartPos.Y.Scale, oStartPos.Y.Offset + d.Y)
+    end
+end)
+
+-- ============ MAIN MENU ============
+local menu = Instance.new("Frame", gui)
+menu.Name = "MainMenu"
+menu.AnchorPoint = Vector2.new(0.5, 0.5)
+menu.Size = UDim2.fromOffset(520, 320)
+menu.Position = UDim2.fromScale(0.5, 0.5)
+menu.BackgroundColor3 = COL.bg
+menu.BorderSizePixel = 0
+menu.ClipsDescendants = true
+menu.Visible = false
+menu.ZIndex = 10
+Instance.new("UICorner", menu).CornerRadius = UDim.new(0, 14)
+
+local mGrad = Instance.new("UIGradient", menu)
+mGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(45, 7, 58)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(18, 6, 36)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(55, 8, 68)),
+}
+mGrad.Rotation = 45
+
+local mStroke = Instance.new("UIStroke", menu)
+mStroke.Color = COL.pink
+mStroke.Thickness = 2
+
+local mStrokeGrad = Instance.new("UIGradient", mStroke)
+mStrokeGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, COL.pink),
+    ColorSequenceKeypoint.new(0.5, COL.cyan),
+    ColorSequenceKeypoint.new(1, COL.purple),
+}
+
+task.spawn(function()
+    while menu and menu.Parent do
+        local tw = TS:Create(mStrokeGrad, TweenInfo.new(2.4, Enum.EasingStyle.Linear), {Rotation = mStrokeGrad.Rotation + 360})
+        tw:Play()
+        tw.Completed:Wait()
+    end
+end)
+
+-- Kéo thả khung menu chính
+local mDragging = false
+local mDragInput = nil
+local mDragStart = nil
+local mStartPos = nil
+
+menu.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        mDragging = true
+        mDragStart = input.Position
+        mStartPos = menu.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                mDragging = false
+            end
+        end)
+    end
+end)
+
+menu.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        mDragInput = input
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if input == mDragInput and mDragging then
+        local d = input.Position - mDragStart
+        menu.Position = UDim2.new(mStartPos.X.Scale, mStartPos.X.Offset + d.X, mStartPos.Y.Scale, mStartPos.Y.Offset + d.Y)
+    end
+end)
+
+local mOpen = false
+local function setMenuOpen(state)
+    mOpen = state
+    if mOpen then
+        menu.Visible = true
+        menu.Size = UDim2.fromOffset(320, 190)
+        menu.BackgroundTransparency = 0.25
+        tween(menu, 0.28, {Size = UDim2.fromOffset(520, 320), BackgroundTransparency = 0})
+        tween(oBtn, 0.2, {Size = UDim2.fromOffset(46, 46)})
+    else
+        local tw = tween(menu, 0.2, {Size = UDim2.fromOffset(340, 200), BackgroundTransparency = 1})
+        tween(oBtn, 0.2, {Size = UDim2.fromOffset(52, 52)})
+        tw.Completed:Wait()
+        if not mOpen then menu.Visible = false end
+    end
+end
+
+oBtn.Activated:Connect(function()
+    if oMoved > 8 then return end
+    setMenuOpen(not mOpen)
+end)
+
+-- ============ TITLE BAR ============
+local tb = Instance.new("Frame", menu)
+tb.Size = UDim2.new(1, 0, 0, 38)
+tb.BackgroundColor3 = COL.pink
+tb.BorderSizePixel = 0
+tb.ZIndex = 12
+Instance.new("UICorner", tb).CornerRadius = UDim.new(0, 14)
+
+local tbGrad = Instance.new("UIGradient", tb)
+tbGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, COL.pink),
+    ColorSequenceKeypoint.new(1, COL.purple),
+}
+
+local fb = Instance.new("Frame", tb)
+fb.Size = UDim2.new(1, 0, 0, 12)
+fb.Position = UDim2.new(0, 0, 1, -12)
+fb.BackgroundColor3 = COL.pink
+fb.BorderSizePixel = 0
+fb.ZIndex = 11
+local fbGrad = Instance.new("UIGradient", fb)
+fbGrad.Color = tbGrad.Color
+
+local tTxt = Instance.new("TextLabel", tb)
+tTxt.Size = UDim2.new(1, -60, 1, 0)
+tTxt.Position = UDim2.fromOffset(14, 0)
+tTxt.BackgroundTransparency = 1
+tTxt.Text = "✦ TRUE MAN HUB v3.5"
+tTxt.TextColor3 = COL.text
+tTxt.Font = Enum.Font.GothamBlack
+tTxt.TextSize = 15
+tTxt.TextXAlignment = Enum.TextXAlignment.Left
+tTxt.ZIndex = 13
+
+local tStroke = Instance.new("UIStroke", tTxt)
+tStroke.Color = COL.cyan
+tStroke.Thickness = 1
+tStroke.Transparency = 0.4
+
+local cBtn = Instance.new("TextButton", tb)
+cBtn.Size = UDim2.fromOffset(26, 26)
+cBtn.Position = UDim2.new(1, -32, 0.5, -13)
+cBtn.BackgroundColor3 = COL.pinkDark
+cBtn.Text = "✕"
+cBtn.TextColor3 = COL.text
+cBtn.Font = Enum.Font.GothamBold
+cBtn.TextSize = 13
+cBtn.AutoButtonColor = false
+cBtn.ZIndex = 13
+Instance.new("UICorner", cBtn).CornerRadius = UDim.new(0, 7)
+cBtn.Activated:Connect(function() setMenuOpen(false) end)
+
+-- ============ CATEGORIES ============
+local cats = {"Farm", "Player", "Misc"}
+local catBtns = {}
+local curCat = "Farm"
+
+local catFrame = Instance.new("Frame", menu)
+catFrame.Size = UDim2.new(0, 96, 1, -50)
+catFrame.Position = UDim2.fromOffset(10, 44)
+catFrame.BackgroundTransparency = 1
+catFrame.ZIndex = 12
+local catLayout = Instance.new("UIListLayout", catFrame)
+catLayout.Padding = UDim.new(0, 6)
+
+local content = Instance.new("Frame", menu)
+content.Size = UDim2.new(1, -120, 1, -50)
+content.Position = UDim2.fromOffset(112, 44)
+content.BackgroundTransparency = 1
+content.ZIndex = 12
+
+local pages = {}
+
+local function switchCat(name)
+    curCat = name
+    for pName, page in pairs(pages) do
+        page.Visible = (pName == name)
+    end
+    for bName, b in pairs(catBtns) do
+        tween(b, 0.18, {BackgroundColor3 = (bName == name) and COL.pink or COL.panel})
+    end
+end
+
+for _, name in ipairs(cats) do
+    local b = Instance.new("TextButton", catFrame)
+    b.Size = UDim2.new(1, 0, 0, 32)
+    b.BackgroundColor3 = (name == "Farm") and COL.pink or COL.panel
+    b.Text = name
+    b.TextColor3 = COL.text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.AutoButtonColor = false
+    b.ZIndex = 13
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
+
+    local bs = Instance.new("UIStroke", b)
+    bs.Color = (name == "Farm") and COL.cyan or COL.purple
+    bs.Thickness = 1.2
+    bs.Transparency = 0.35
+
+    catBtns[name] = b
+    b.Activated:Connect(function()
+        switchCat(name)
+        for n, btn in pairs(catBtns) do
+            local st = btn:FindFirstChildOfClass("UIStroke")
+            if st then st.Color = (n == name) and COL.cyan or COL.purple end
+        end
+    end)
+
+    local page = Instance.new("ScrollingFrame", content)
+    page.Name = name .. "Page"
+    page.Size = UDim2.fromScale(1, 1)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel = 0
+    page.ScrollBarThickness = 4
+    page.ScrollBarImageColor3 = COL.pink
+    page.CanvasSize = UDim2.new(0, 0, 0, 0)
+    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    page.Visible = (name == "Farm")
+    page.ZIndex = 12
+
+    local layout = Instance.new("UIListLayout", page)
+    layout.Padding = UDim.new(0, 6)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local pad = Instance.new("UIPadding", page)
+    pad.PaddingRight = UDim.new(0, 6)
+    pad.PaddingBottom = UDim.new(0, 8)
+
+    pages[name] = page
+end
+
+-- ============ COMPONENTS ============
+local function addSection(parent, title)
+    local s = Instance.new("TextLabel", parent)
+    s.Size = UDim2.new(1, 0, 0, 20)
+    s.BackgroundTransparency = 1
+    s.Text = "✦ " .. title
+    s.TextColor3 = COL.cyan
+    s.Font = Enum.Font.GothamBold
+    s.TextSize = 11
+    s.TextXAlignment = Enum.TextXAlignment.Left
+    s.ZIndex = 13
+    return s
+end
+
+local function addToggle(parent, txt, def, cb)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1, 0, 0, 32)
+    row.BackgroundColor3 = COL.panel
+    row.BorderSizePixel = 0
+    row.ZIndex = 13
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 7)
+
+    local rs = Instance.new("UIStroke", row)
+    rs.Color = COL.purple
+    rs.Thickness = 1
+    rs.Transparency = 0.55
+
+    local l = Instance.new("TextLabel", row)
+    l.Size = UDim2.new(1, -60, 1, 0)
+    l.Position = UDim2.fromOffset(10, 0)
+    l.BackgroundTransparency = 1
+    l.Text = txt
+    l.TextColor3 = COL.text
+    l.Font = Enum.Font.GothamBold
+    l.TextSize = 11
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.ZIndex = 14
+
+    local tog = Instance.new("Frame", row)
+    tog.Size = UDim2.fromOffset(40, 20)
+    tog.Position = UDim2.new(1, -48, 0.5, -10)
+    tog.BackgroundColor3 = def and COL.pink or Color3.fromRGB(52, 28, 66)
+    tog.BorderSizePixel = 0
+    tog.ZIndex = 14
+    Instance.new("UICorner", tog).CornerRadius = UDim.new(1, 0)
+
+    local tgs = Instance.new("UIStroke", tog)
+    tgs.Color = def and COL.cyan or COL.purple
+    tgs.Thickness = 1.2
+    tgs.Transparency = 0.3
+
+    local kn = Instance.new("Frame", tog)
+    kn.Size = UDim2.fromOffset(16, 16)
+    kn.Position = def and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+    kn.BackgroundColor3 = COL.text
+    kn.BorderSizePixel = 0
+    kn.ZIndex = 15
+    Instance.new("UICorner", kn).CornerRadius = UDim.new(1, 0)
+
+    local click = Instance.new("TextButton", row)
+    click.Size = UDim2.fromScale(1, 1)
+    click.BackgroundTransparency = 1
+    click.Text = ""
+    click.ZIndex = 16
+
+    local st = def
+    click.Activated:Connect(function()
+        st = not st
+        if st then
+            tween(tog, 0.18, {BackgroundColor3 = COL.pink})
+            tween(kn, 0.18, {Position = UDim2.new(1, -18, 0.5, -8)})
+            tween(tgs, 0.18, {Color = COL.cyan})
+        else
+            tween(tog, 0.18, {BackgroundColor3 = Color3.fromRGB(52, 28, 66)})
+            tween(kn, 0.18, {Position = UDim2.new(0, 2, 0.5, -8)})
+            tween(tgs, 0.18, {Color = COL.purple})
+        end
+        if cb then cb(st) end
+    end)
+    return row
+end
+
+local function addSlider(parent, txt, minV, maxV, def, cb)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1, 0, 0, 44)
+    row.BackgroundColor3 = COL.panel
+    row.BorderSizePixel = 0
+    row.ZIndex = 13
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 7)
+
+    local rs = Instance.new("UIStroke", row)
+    rs.Color = COL.purple
+    rs.Thickness = 1
+    rs.Transparency = 0.55
+
+    local l = Instance.new("TextLabel", row)
+    l.Size = UDim2.new(0.5, -10, 0, 16)
+    l.Position = UDim2.fromOffset(10, 3)
+    l.BackgroundTransparency = 1
+    l.Text = txt
+    l.TextColor3 = COL.text
+    l.Font = Enum.Font.GothamBold
+    l.TextSize = 11
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.ZIndex = 14
+
+    local valLbl = Instance.new("TextLabel", row)
+    valLbl.Size = UDim2.new(0.5, -10, 0, 16)
+    valLbl.Position = UDim2.new(0.5, 0, 0, 3)
+    valLbl.BackgroundTransparency = 1
+    valLbl.Text = tostring(def) .. " studs/s"
+    valLbl.TextColor3 = COL.cyan
+    valLbl.Font = Enum.Font.GothamBold
+    valLbl.TextSize = 10
+    valLbl.TextXAlignment = Enum.TextXAlignment.Right
+    valLbl.ZIndex = 14
+
+    local bar = Instance.new("Frame", row)
+    bar.Size = UDim2.new(1, -20, 0, 10)
+    bar.Position = UDim2.fromOffset(10, 25)
+    bar.BackgroundColor3 = Color3.fromRGB(42, 18, 58)
+    bar.BorderSizePixel = 0
+    bar.ZIndex = 14
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+
+    local fill = Instance.new("Frame", bar)
+    fill.Size = UDim2.new(math.clamp((def - minV) / (maxV - minV), 0, 1), 0, 1, 0)
+    fill.BackgroundColor3 = COL.pink
+    fill.BorderSizePixel = 0
+    fill.ZIndex = 15
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local fGrad = Instance.new("UIGradient", fill)
+    fGrad.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, COL.cyan),
+        ColorSequenceKeypoint.new(1, COL.pink),
+    }
+
+    local drag = false
+    local btn = Instance.new("TextButton", bar)
+    btn.Size = UDim2.fromScale(1, 1)
+    btn.BackgroundTransparency = 1
+    btn.Text = ""
+    btn.ZIndex = 16
+
+    local function update(x)
+        local rel = math.clamp((x - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1), 0, 1)
+        local v = math.floor(minV + rel * (maxV - minV))
+        fill.Size = UDim2.new(rel, 0, 1, 0)
+        valLbl.Text = tostring(v) .. " studs/s"
+        if cb then cb(v) end
+    end
+
+    btn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            drag = true
+            update(input.Position.X)
+        end
+    end)
+
+    UIS.InputChanged:Connect(function(input)
+        if drag and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            update(input.Position.X)
+        end
+    end)
+
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            drag = false
+        end
+    end)
+    return row
+end
+
+-- ============ SPEED BYPASS ============
+pcall(function()
+    if getrawmetatable and setreadonly and newcclosure then
+        local mt = getrawmetatable(game)
+        setreadonly(mt, false)
+        local oI = mt.__index
+        local oN = mt.__newindex
+        mt.__index = newcclosure(function(s, k)
+            if F.Speed and typeof(s) == "Instance" and s:IsA("Humanoid") and k == "WalkSpeed" then
+                return F.SpeedVal
+            end
+            return oI(s, k)
+        end)
+        mt.__newindex = newcclosure(function(s, k, v)
+            if F.Speed and typeof(s) == "Instance" and s:IsA("Humanoid") and (k == "WalkSpeed" or k == "JumpPower") then
+                return
+            end
+            return oN(s, k, v)
+        end)
+        setreadonly(mt, true)
+    end
+end)
+
+-- ============ FARM PAGE ============
+local fp = pages["Farm"]
+addSection(fp, "AUTO STEAL")
+addToggle(fp, "Auto Steal Best Egg", false, function(s) F.AutoBest = s end)
+addToggle(fp, "Auto Steal Selected", false, function(s) F.AutoSel = s end)
+
+addSection(fp, "RARITY FILTER")
+for _, rn in ipairs({"Secret", "Divine", "Eternal", "Cosmic"}) do
+    addToggle(fp, rn, true, function(s) F.Filter[rn] = s end)
+end
+
+-- ============ PLAYER PAGE ============
+local pp = pages["Player"]
+addSection(pp, "MOVEMENT")
+addToggle(pp, "Speed Bypass", false, function(s) F.Speed = s end)
+addSlider(pp, "Speed Value", 16, 750, 750, function(v) F.SpeedVal = v end)
+addToggle(pp, "Infinite Jump", false, function(s) F.InfiniteJump = s end)
+
+addSection(pp, "PROTECTION")
+addToggle(pp, "Anti-Ban (Kick Protection)", false, function(s)
+    F.AntiBan = s
+    if s then
+        pcall(function()
+            if getrawmetatable and setreadonly and newcclosure and getnamecallmethod then
+                local mt = getrawmetatable(game)
+                setreadonly(mt, false)
+                local o = mt.__namecall
+                mt.__namecall = newcclosure(function(self, ...)
+                    if F.AntiBan and getnamecallmethod() == "Kick" then
+                        task.spawn(function() notify("🛡️ Kick blocked!", COL.cyan) end)
+                        return
+                    end
+                    return o(self, ...)
+                end)
+                setreadonly(mt, true)
+            end
+        end)
+        notify("🛡️ Anti-Ban ON", COL.cyan)
+    end
+end)
+addToggle(pp, "God Mode (Anti-Death)", true, function(s) F.GodMode = s end)
+addToggle(pp, "Anti Ragdoll", false, function(s) F.AntiRagdoll = s end)
+
+-- ============ MISC PAGE ============
+local mp = pages["Misc"]
+addSection(mp, "UI")
+addToggle(mp, "Hide GUI", false, function(s) setMenuOpen(not s) end)
+
+addSection(mp, "OTHER")
+addToggle(mp, "Anti AFK", false, function(s) F.AntiAFK = s end)
+
+local info = Instance.new("TextLabel", mp)
+info.Size = UDim2.new(1, 0, 0, 46)
+info.BackgroundColor3 = COL.panel
+info.Text = "  💗 TRUE MAN HUB v3.5  •  Pinkpunk Neon
+  Anti-Ban Edition"
+info.TextColor3 = COL.cyan
+info.Font = Enum.Font.GothamBold
+info.TextSize = 11
+info.TextXAlignment = Enum.TextXAlignment.Left
+info.ZIndex = 13
+Instance.new("UICorner", info).CornerRadius = UDim.new(0, 7)
+
+local infs = Instance.new("UIStroke", info)
+infs.Color = COL.pink
+infs.Thickness = 1
+infs.Transparency = 0.5
+
+local unloadBtn = Instance.new("TextButton", mp)
+unloadBtn.Size = UDim2.new(1, 0, 0, 32)
+unloadBtn.BackgroundColor3 = Color3.fromRGB(95, 12, 58)
+unloadBtn.Text = "⛔ UNLOAD SCRIPT"
+unloadBtn.TextColor3 = COL.text
+unloadBtn.Font = Enum.Font.GothamBold
+unloadBtn.TextSize = 11
+unloadBtn.AutoButtonColor = false
+unloadBtn.ZIndex = 13
+Instance.new("UICorner", unloadBtn).CornerRadius = UDim.new(0, 7)
+
+local us = Instance.new("UIStroke", unloadBtn)
+us.Color = COL.pink
+us.Thickness = 1.2
+us.Transparency = 0.3
+
+-- ============ TG FLOATING ============
+local tgBtn = Instance.new("TextButton", gui)
+tgBtn.Name = "TelegramButton"
+tgBtn.Size = UDim2.fromOffset(38, 38)
+tgBtn.Position = UDim2.new(0, 21, 0.5, 36)
+tgBtn.BackgroundColor3 = COL.blue
+tgBtn.Text = "✈"
+tgBtn.TextColor3 = COL.text
+tgBtn.TextSize = 16
+tgBtn.Font = Enum.Font.GothamBold
+tgBtn.AutoButtonColor = false
+tgBtn.Active = true
+tgBtn.ZIndex = 20
+Instance.new("UICorner", tgBtn).CornerRadius = UDim.new(1, 0)
+
+local tgs = Instance.new("UIStroke", tgBtn)
+tgs.Color = COL.cyan
+tgs.Thickness = 1.8
+
+local tgMoved = 0
+local tgDragStart = nil
+local tgStartPos = nil
+local tgDragging = false
+
+tgBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        tgDragging = true
+        tgDragStart = input.Position
+        tgStartPos = tgBtn.Position
+        tgMoved = 0
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if tgDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local d = input.Position - tgDragStart
+        tgMoved = d.Magnitude
+        tgBtn.Position = UDim2.new(tgStartPos.X.Scale, tgStartPos.X.Offset + d.X, tgStartPos.Y.Scale, tgStartPos.Y.Offset + d.Y)
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        tgDragging = false
+    end
+end)
+
+tgBtn.Activated:Connect(function()
+    if tgMoved > 8 then return end
+    pcall(function()
+        if setclipboard then setclipboard(TG) end
+    end)
+    notify("✈ Telegram link copied!", COL.cyan)
+end)
+
+-- ============ CORE LOOPS ============
+local jumpConn = UIS.JumpRequest:Connect(function()
+    if F.InfiniteJump then
+        local char = P.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+local idleConn = P.Idled:Connect(function()
+    if F.AntiAFK then
+        pcall(function()
+            VU:Button2Down(Vector2.zero, workspace.CurrentCamera.CFrame)
+            task.wait(1)
+            VU:Button2Up(Vector2.zero, workspace.CurrentCamera.CFrame)
+        end)
+    end
+end)
+
+local hbConn = RS.Heartbeat:Connect(function()
+    local char = P.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+
+    if hum then
+        if F.Speed then
+            if hum.WalkSpeed ~= F.SpeedVal then
+                hum.WalkSpeed = F.SpeedVal
+            end
+            if root and hum.MoveDirection.Magnitude > 0 then
+                root.CFrame = root.CFrame + (hum.MoveDirection * (F.SpeedVal / 60))
+            end
+        end
+
+        if F.GodMode and hum.Health > 0 and hum.Health < hum.MaxHealth then
+            hum.Health = hum.MaxHealth
+        end
+
+        if F.AntiRagdoll then
+            pcall(function()
+                hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+                hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+            end)
+        end
+    end
+end)
+
+unloadBtn.Activated:Connect(function()
+    F.Speed = false
+    F.AutoBest = false
+    F.AutoSel = false
+    F.InfiniteJump = false
+    F.AntiRagdoll = false
+    F.GodMode = false
+    F.AntiAFK = false
+    F.AntiBan = false
+
+    if jumpConn then jumpConn:Disconnect() end
+    if idleConn then idleConn:Disconnect() end
+    if hbConn then hbConn:Disconnect() end
+
+    local h = P.Character and P.Character:FindFirstChildOfClass("Humanoid")
+    if h then h.WalkSpeed = 16 end
+
+    if gui and gui.Parent then gui:Destroy() end
+    if ng and ng.Parent then ng:Destroy() end
+    if ig and ig.Parent then ig:Destroy() end
+end)
+
+task.delay(1.4, function()
+    notify("✨ TRUE MAN HUB v3.5 loaded!", COL.cyan)
+end)
