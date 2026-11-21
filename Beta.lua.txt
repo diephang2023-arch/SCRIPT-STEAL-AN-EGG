@@ -2,7 +2,7 @@
 --  TLN CHEAT - MERGED EDITION (VI + EN + ID | 3-LANG PILL | FULL FEATURES)
 -- ==============================================================================
 
-local NEW_TITLE       = "TLN CHEAT"
+local NEW_TITLE       = "GAU MODS"
 local TELEGRAM_LINK   = "https://t.me/addlist/dlX9dRlQmyNlMWFl"
 local CHILLI_LOGO_ID  = "rbxassetid://100224396235670"
 local LOGO_BG_COLOR   = Color3.fromRGB(5, 7, 15)
