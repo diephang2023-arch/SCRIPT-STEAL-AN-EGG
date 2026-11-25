@@ -1,0 +1,223 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+local MAIN_SCRIPT_URL = "https://raw.githubusercontent.com/tienkhanh1/Aquavine/main/DivineHub"
+local CUSTOM_INVITE_LINK = "https://discord.gg/nzUbDU26wS"
+local NEW_BRAND_TEXT = "Gau Mods"
+
+local REPLACE_WORDS = {
+	"divine",
+	"venryx",
+	"venyx",
+	"chilli",
+}
+
+local IMAGE_REPLACEMENTS = {
+	-- Điền ID ảnh mới nếu cần, ví dụ:
+	-- ["3d0256c2b4114228c2fd0ba4619a9392/ChilliVenyx_logo_divine.png"] = "rbxassetid://ID_ANH_MOI",
+}
+
+-- 1. Hook setclipboard an toàn
+pcall(function()
+	local env = (getgenv and getgenv()) or _G
+	if hookfunction and setclipboard and not env.__GauClipHooked then
+		env.__GauClipHooked = true
+		local oldClip
+		oldClip = hookfunction(setclipboard, function(str)
+			if type(str) == "string" then
+				local low = str:lower()
+				if low:find("discord.gg", 1, true)
+					or low:find("discord.com/invite", 1, true)
+					or low:find("wc4qdftyxx", 1, true)
+					or low:find("nzubdu26ws", 1, true)
+				then
+					str = CUSTOM_INVITE_LINK
+				end
+			end
+			return oldClip(str)
+		end)
+	end
+end)
+
+local function escapePattern(str)
+	return tostring(str):gsub("([%%%^%$%(%)%.%[%]%*%+%-%?])", "%%%1")
+end
+
+local function makeCaseInsensitivePattern(word)
+	local out = {}
+	for i = 1, #word do
+		local c = word:sub(i, i)
+		if c:match("%a") then
+			table.insert(out, "[" .. c:upper() .. c:lower() .. "]")
+		else
+			table.insert(out, escapePattern(c))
+		end
+	end
+	return table.concat(out)
+end
+
+local COMPILED_PATTERNS = {}
+for _, w in ipairs(REPLACE_WORDS) do
+	if w and w ~= "" then
+		table.insert(COMPILED_PATTERNS, makeCaseInsensitivePattern(w))
+	end
+end
+
+local function transformText(rawText)
+	local out = tostring(rawText or "")
+	if out == "" then return out end
+
+	out = out:gsub("https?://discord%.gg/[%w%-_]+", CUSTOM_INVITE_LINK)
+	out = out:gsub("discord%.gg/[%w%-_]+", CUSTOM_INVITE_LINK)
+	out = out:gsub("https?://discord%.com/invite/[%w%-_]+", CUSTOM_INVITE_LINK)
+
+	local low = out:lower()
+	if low:find("copied invite", 1, true)
+		or low:find("copied discord", 1, true)
+		or low:find("invite copied", 1, true)
+		or low:find("đã sao chép link", 1, true)
+	then
+		out = "Đã sao chép link mời"
+	end
+
+	for _, pat in ipairs(COMPILED_PATTERNS) do
+		out = out:gsub(pat, NEW_BRAND_TEXT)
+	end
+
+	return out
+end
+
+local function normalizeKey(val)
+	local s = tostring(val or "")
+	local digits = s:match("(%d+)$") or s:match("(%d+)")
+	return digits, s
+end
+
+local NORMALIZED_IMAGES = {}
+for k, v in pairs(IMAGE_REPLACEMENTS) do
+	if v and v ~= "" then
+		local target = tostring(v):match("^%d+$") and ("rbxassetid://" .. tostring(v)) or tostring(v)
+		local digits, raw = normalizeKey(k)
+		NORMALIZED_IMAGES[raw] = target
+		if digits then
+			NORMALIZED_IMAGES[digits] = target
+		end
+	end
+end
+
+local function resolveReplacementImage(currentImg)
+	local cur = tostring(currentImg or "")
+	if cur == "" then return nil end
+	if NORMALIZED_IMAGES[cur] then
+		return NORMALIZED_IMAGES[cur]
+	end
+	local digits = normalizeKey(cur)
+	if digits and NORMALIZED_IMAGES[digits] then
+		return NORMALIZED_IMAGES[digits]
+	end
+	for key, target in pairs(NORMALIZED_IMAGES) do
+		if key ~= "" and cur:find(key, 1, true) then
+			return target
+		end
+	end
+	return nil
+end
+
+local function patchObject(obj)
+	if not obj or not obj.Parent then return end
+
+	if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+		if not obj:GetAttribute("__GauBrandTextHooked") then
+			pcall(function()
+				obj:SetAttribute("__GauBrandTextHooked", true)
+			end)
+			local function applyText()
+				local cur = tostring(obj.Text or "")
+				local nextText = transformText(cur)
+				if nextText ~= cur then
+					obj.Text = nextText
+				end
+			end
+			applyText()
+			obj:GetPropertyChangedSignal("Text"):Connect(applyText)
+		end
+	elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+		if not obj:GetAttribute("__GauBrandImgHooked") then
+			pcall(function()
+				obj:SetAttribute("__GauBrandImgHooked", true)
+			end)
+			local function applyImg()
+				local cur = tostring(obj.Image or "")
+				local nextImg = resolveReplacementImage(cur)
+				if nextImg and nextImg ~= cur then
+					obj.Image = nextImg
+				end
+			end
+			applyImg()
+			obj:GetPropertyChangedSignal("Image"):Connect(applyImg)
+		end
+	end
+end
+
+local function watchRoot(root)
+	if not root then return end
+	for _, d in ipairs(root:GetDescendants()) do
+		pcall(patchObject, d)
+	end
+	root.DescendantAdded:Connect(function(d)
+		task.defer(function()
+			pcall(patchObject, d)
+			for _, sub in ipairs(d:GetDescendants()) do
+				pcall(patchObject, sub)
+			end
+		end)
+	end)
+end
+
+-- 2. Theo dõi giao diện an toàn
+pcall(function() watchRoot(PlayerGui) end)
+pcall(function()
+	if gethui then watchRoot(gethui()) end
+end)
+pcall(function()
+	local cg = game:GetService("CoreGui")
+	if cg then watchRoot(cg) end
+end)
+
+-- 3. Giữ ghi đè khi đổi phòng
+pcall(function()
+	local queueTeleport = queue_on_teleport
+		or (syn and syn.queue_on_teleport)
+		or (fluxus and fluxus.queue_on_teleport)
+	if queueTeleport then
+		local queued = false
+		local function queueSelf()
+			if queued then return end
+			queued = true
+			queueTeleport('loadstring(game:HttpGet("' .. MAIN_SCRIPT_URL .. '?t=" .. tostring(os.time())))()')
+		end
+		queueSelf()
+		LocalPlayer.OnTeleport:Connect(function()
+			queued = false
+			queueSelf()
+		end)
+	end
+end)
+
+-- 4. Chạy script chính
+local sep = MAIN_SCRIPT_URL:find("?", 1, true) and "&" or "?"
+local ok, src = pcall(function()
+	return game:HttpGet(MAIN_SCRIPT_URL .. sep .. "t=" .. tostring(os.time()))
+end)
+
+if ok and type(src) == "string" and #src > 0 then
+	local fn, loadErr = loadstring(src)
+	if fn then
+		fn()
+	else
+		warn("Lỗi biên dịch script chính: " .. tostring(loadErr))
+	end
+else
+	warn("Không tải được script chính từ GitHub.")
+end
