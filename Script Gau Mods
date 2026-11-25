@@ -3,7 +3,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local MAIN_SCRIPT_URL = "https://raw.githubusercontent.com/tienkhanh1/Aquavine/main/DivineHub"
-local CUSTOM_INVITE_LINK = "https://discord.gg/nzUbDU26wS"
+local CUSTOM_INVITE_LINK = "xin chào"
 local NEW_BRAND_TEXT = "Gau Mods"
 
 local REPLACE_WORDS = {
@@ -15,7 +15,7 @@ local REPLACE_WORDS = {
 
 local IMAGE_REPLACEMENTS = {
 	-- Điền ID ảnh mới nếu cần, ví dụ:
-	-- ["3d0256c2b4114228c2fd0ba4619a9392/ChilliVenyx_logo_divine.png"] = "rbxassetid://ID_ANH_MOI",
+	-- ["3d0256c2b4114228c2fd0ba4619a9392/ChilliVenyx_logo_divine.png"] = "rbxassetid://84033903679",
 }
 
 -- 1. Hook setclipboard an toàn
