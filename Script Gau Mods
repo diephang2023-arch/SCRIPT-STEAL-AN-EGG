@@ -7,18 +7,66 @@ local CUSTOM_INVITE_LINK = "xin chào"
 local NEW_BRAND_TEXT = "Gau Mods"
 
 local REPLACE_WORDS = {
-	"divine",
-	"venryx",
-	"venyx",
-	"chilli",
+	"divine"
 }
 
+-- Điền ID ảnh mới vào đây (hỗ trợ cả dạng số ID, "rbxassetid://...", hoặc đường dẫn "hash/file.png")
 local IMAGE_REPLACEMENTS = {
-	-- Điền ID ảnh mới nếu cần, ví dụ:
-	-- ["3d0256c2b4114228c2fd0ba4619a9392/ChilliVenyx_logo_divine.png"] = "rbxassetid://84033903679",
+	-- Ví dụ:
+	-- ["d3f704ef886760905ab979d7cd87ac3b/logo.png"] = "rbxassetid://ID_MOI",
+	-- ["3d0256c2b4114228c2fd0ba4619a9392/ChilliVenyx_logo_divine.png"] = "rbxassetid://ID_MOI",
+	-- ["3d0256c2b4114228c2fd0ba4619a9392/ChilliVenyx_logo_discord.png"] = "rbxassetid://ID_MOI",
+	-- ["97499770821177"] = "rbxassetid://ID_MOI",
 }
 
--- 1. Hook setclipboard an toàn
+local function normalizeTargetAsset(val)
+	local s = tostring(val or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if s == "" then return nil end
+	if s:match("^%d+$") then
+		return "rbxassetid://" .. s
+	end
+	return s
+end
+
+local function extractDigits(str)
+	local s = tostring(str or "")
+	return s:match("(%d+)$") or s:match("(%d+)")
+end
+
+local TARGET_IMAGE_RULES = {}
+for rawKey, rawVal in pairs(IMAGE_REPLACEMENTS) do
+	local target = normalizeTargetAsset(rawVal)
+	local kStr = tostring(rawKey or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if target and kStr ~= "" then
+		table.insert(TARGET_IMAGE_RULES, {
+			keyLower = kStr:lower(),
+			digits = extractDigits(kStr),
+			replacement = target,
+		})
+	end
+end
+
+local function matchImageReplacement(currentImage)
+	local cur = tostring(currentImage or "")
+	if cur == "" or #TARGET_IMAGE_RULES == 0 then return nil end
+	local curLower = cur:lower()
+	local curDigits = extractDigits(cur)
+
+	for _, rule in ipairs(TARGET_IMAGE_RULES) do
+		if curLower == rule.keyLower or curLower:find(rule.keyLower, 1, true) then
+			return rule.replacement
+		end
+		if rule.digits and curDigits and rule.digits == rule.digits and curDigits == rule.digits then
+			-- Tránh khớp nhầm rbxthumb avatar headshot
+			if not curLower:find("avatarheadshot", 1, true) and curDigits == rule.digits then
+				return rule.replacement
+			end
+		end
+	end
+	return nil
+end
+
+-- Hook setclipboard
 pcall(function()
 	local env = (getgenv and getgenv()) or _G
 	if hookfunction and setclipboard and not env.__GauClipHooked then
@@ -88,40 +136,63 @@ local function transformText(rawText)
 	return out
 end
 
-local function normalizeKey(val)
-	local s = tostring(val or "")
-	local digits = s:match("(%d+)$") or s:match("(%d+)")
-	return digits, s
-end
+-- Xử lý nút bật/tắt menu: bấm 1 lần mở, bấm thêm 1 lần tắt hẳn ngay lập tức
+local function findMainMenuTarget(clickedBtn)
+	local rootGui = clickedBtn:FindFirstAncestorWhichIsA("ScreenGui")
+	if not rootGui then return nil end
 
-local NORMALIZED_IMAGES = {}
-for k, v in pairs(IMAGE_REPLACEMENTS) do
-	if v and v ~= "" then
-		local target = tostring(v):match("^%d+$") and ("rbxassetid://" .. tostring(v)) or tostring(v)
-		local digits, raw = normalizeKey(k)
-		NORMALIZED_IMAGES[raw] = target
-		if digits then
-			NORMALIZED_IMAGES[digits] = target
+	-- Tìm khung chính lớn nhất (loại trừ nút toggle nhỏ)
+	local bestFrame = nil
+	local bestArea = 0
+	for _, desc in ipairs(rootGui:GetDescendants()) do
+		if desc:IsA("Frame") or desc:IsA("CanvasGroup") or desc:IsA("ScrollingFrame") then
+			if desc ~= clickedBtn and not desc:IsAncestorOf(clickedBtn) and not clickedBtn:IsAncestorOf(desc) then
+				local sz = desc.AbsoluteSize
+				local area = sz.X * sz.Y
+				if area > 12000 and area > bestArea then
+					bestArea = area
+					bestFrame = desc
+				end
+			end
 		end
 	end
+
+	return bestFrame or rootGui
 end
 
-local function resolveReplacementImage(currentImg)
-	local cur = tostring(currentImg or "")
-	if cur == "" then return nil end
-	if NORMALIZED_IMAGES[cur] then
-		return NORMALIZED_IMAGES[cur]
-	end
-	local digits = normalizeKey(cur)
-	if digits and NORMALIZED_IMAGES[digits] then
-		return NORMALIZED_IMAGES[digits]
-	end
-	for key, target in pairs(NORMALIZED_IMAGES) do
-		if key ~= "" and cur:find(key, 1, true) then
-			return target
-		end
-	end
-	return nil
+local function hookCleanToggle(btn)
+	if not (btn:IsA("TextButton") or btn:IsA("ImageButton")) then return end
+	if btn:GetAttribute("__GauCleanToggleHooked") then return end
+	pcall(function() btn:SetAttribute("__GauCleanToggleHooked", true) end)
+
+	local txt = tostring(btn.Text or ""):lower()
+	local nameLow = tostring(btn.Name or ""):lower()
+	local isSmallToggle = (btn.AbsoluteSize.X <= 90 and btn.AbsoluteSize.Y <= 90)
+		or nameLow:find("toggle", 1, true)
+		or nameLow:find("open", 1, true)
+		or nameLow:find("minim", 1, true)
+		or txt:find("open", 1, true)
+		or txt:find("menu", 1, true)
+
+	if not isSmallToggle then return end
+
+	btn.Activated:Connect(function()
+		task.defer(function()
+			local target = findMainMenuTarget(btn)
+			if not target then return end
+
+			if target:IsA("ScreenGui") then
+				target.Enabled = not target.Enabled
+			elseif target:IsA("GuiObject") then
+				local nextState = not target.Visible
+				target.Visible = nextState
+				local sg = target:FindFirstAncestorWhichIsA("ScreenGui")
+				if sg and not sg.Enabled then
+					sg.Enabled = true
+				end
+			end
+		end)
+	end)
 end
 
 local function patchObject(obj)
@@ -129,9 +200,7 @@ local function patchObject(obj)
 
 	if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
 		if not obj:GetAttribute("__GauBrandTextHooked") then
-			pcall(function()
-				obj:SetAttribute("__GauBrandTextHooked", true)
-			end)
+			pcall(function() obj:SetAttribute("__GauBrandTextHooked", true) end)
 			local function applyText()
 				local cur = tostring(obj.Text or "")
 				local nextText = transformText(cur)
@@ -142,20 +211,24 @@ local function patchObject(obj)
 			applyText()
 			obj:GetPropertyChangedSignal("Text"):Connect(applyText)
 		end
+		if obj:IsA("TextButton") then
+			pcall(hookCleanToggle, obj)
+		end
 	elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
 		if not obj:GetAttribute("__GauBrandImgHooked") then
-			pcall(function()
-				obj:SetAttribute("__GauBrandImgHooked", true)
-			end)
+			pcall(function() obj:SetAttribute("__GauBrandImgHooked", true) end)
 			local function applyImg()
 				local cur = tostring(obj.Image or "")
-				local nextImg = resolveReplacementImage(cur)
+				local nextImg = matchImageReplacement(cur)
 				if nextImg and nextImg ~= cur then
 					obj.Image = nextImg
 				end
 			end
 			applyImg()
 			obj:GetPropertyChangedSignal("Image"):Connect(applyImg)
+		end
+		if obj:IsA("ImageButton") then
+			pcall(hookCleanToggle, obj)
 		end
 	end
 end
@@ -175,7 +248,27 @@ local function watchRoot(root)
 	end)
 end
 
--- 2. Theo dõi giao diện an toàn
+-- Quét định kỳ nhẹ cho ảnh để chống script gốc ghi đè lại sau khi tạo UI
+task.spawn(function()
+	while true do
+		if #TARGET_IMAGE_RULES > 0 then
+			for _, root in ipairs({ PlayerGui, gethui and gethui() or nil, game:GetService("CoreGui") }) do
+				if root then
+					for _, d in ipairs(root:GetDescendants()) do
+						if d:IsA("ImageLabel") or d:IsA("ImageButton") then
+							local nextImg = matchImageReplacement(d.Image)
+							if nextImg and d.Image ~= nextImg then
+								pcall(function() d.Image = nextImg end)
+							end
+						end
+					end
+				end
+			end
+		end
+		task.wait(0.6)
+	end
+end)
+
 pcall(function() watchRoot(PlayerGui) end)
 pcall(function()
 	if gethui then watchRoot(gethui()) end
@@ -185,7 +278,7 @@ pcall(function()
 	if cg then watchRoot(cg) end
 end)
 
--- 3. Giữ ghi đè khi đổi phòng
+-- Giữ ghi đè khi đổi phòng
 pcall(function()
 	local queueTeleport = queue_on_teleport
 		or (syn and syn.queue_on_teleport)
@@ -205,7 +298,6 @@ pcall(function()
 	end
 end)
 
--- 4. Chạy script chính
 local sep = MAIN_SCRIPT_URL:find("?", 1, true) and "&" or "?"
 local ok, src = pcall(function()
 	return game:HttpGet(MAIN_SCRIPT_URL .. sep .. "t=" .. tostring(os.time()))
