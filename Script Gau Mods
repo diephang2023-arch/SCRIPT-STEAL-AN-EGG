@@ -13,10 +13,10 @@ local REPLACE_WORDS = {
 -- Điền ID ảnh mới vào đây (hỗ trợ cả dạng số ID, "rbxassetid://...", hoặc đường dẫn "hash/file.png")
 local IMAGE_REPLACEMENTS = {
 	-- Ví dụ:
-	-- ["d3f704ef886760905ab979d7cd87ac3b/logo.png"] = "rbxassetid://ID_MOI",
-	-- ["3d0256c2b4114228c2fd0ba4619a9392/ChilliVenyx_logo_divine.png"] = "rbxassetid://ID_MOI",
-	-- ["3d0256c2b4114228c2fd0ba4619a9392/ChilliVenyx_logo_discord.png"] = "rbxassetid://ID_MOI",
-	-- ["97499770821177"] = "rbxassetid://ID_MOI",
+	-- ["d3f704ef886760905ab979d7cd87ac3b/logo.png"] = "rbxassetid://84033903679",
+	-- ["3d0256c2b4114228c2fd0ba4619a9392/ChilliVenyx_logo_divine.png"] = "rbxassetid://84033903679",
+	-- ["3d0256c2b4114228c2fd0ba4619a9392/ChilliVenyx_logo_discord.png"] = "rbxassetid://84033903679",
+	-- ["97499770821177"] = "rbxassetid://84033903679",
 }
 
 local function normalizeTargetAsset(val)
