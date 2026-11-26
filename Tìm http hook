@@ -1,0 +1,433 @@
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui")
+
+local HTTP_LOGS = {}
+local SEEN_ENTRIES = {}
+local onLogUpdated = nil
+
+local SELF_MARKER = "--[[ GAU_HTTP_HOOK_SELF_IGNORE ]]"
+
+local function isSelfPayload(val)
+	if type(val) ~= "string" then
+		return false
+	end
+	return string.find(val, SELF_MARKER, 1, true) ~= nil
+		or (string.find(val, "GauHttpHookGui", 1, true) ~= nil and string.find(val, "spoofJsonEarly", 1, true) ~= nil)
+end
+
+local function spoofJsonEarly(s)
+	if type(s) ~= "string" then
+		return s
+	end
+
+	-- Plan / tier
+	s = s:gsub('"plan"%s*:%s*null', '"plan":"pro_max"')
+	s = s:gsub('"plan"%s*:%s*"[a-zA-Z0-9_%-]+"', '"plan":"pro_max"')
+	s = s:gsub('"tier"%s*:%s*"[a-zA-Z0-9_%-]+"', '"tier":"pro_max"')
+
+	-- Booking / active
+	s = s:gsub('"has_booking"%s*:%s*false', '"has_booking":true')
+	s = s:gsub('"booking_active"%s*:%s*false', '"booking_active":true')
+	s = s:gsub('"active"%s*:%s*false', '"active":true')
+	s = s:gsub('"is_active"%s*:%s*false', '"is_active":true')
+
+	-- Auth / access
+	s = s:gsub('"authorized"%s*:%s*false', '"authorized":true')
+	s = s:gsub('"has_access"%s*:%s*false', '"has_access":true')
+
+	return s
+end
+
+local function makeFingerprint(method, url, body)
+	local b = tostring(body or "")
+	local bLen = #b
+	local bSample = bLen <= 120 and b or (b:sub(1, 60) .. ":" .. b:sub(-60))
+	return tostring(method or "GET") .. "|" .. tostring(url or "") .. "|" .. tostring(bLen) .. "|" .. bSample
+end
+
+local function recordHttp(info)
+	if type(info) ~= "table" then
+		return
+	end
+	local urlStr = tostring(info.url or "")
+	local respStr = info.response ~= nil and tostring(info.response) or ""
+	if isSelfPayload(urlStr) or isSelfPayload(respStr) then
+		return
+	end
+
+	local fp = makeFingerprint(info.method, urlStr, respStr ~= "" and respStr or info.reqBody)
+	if SEEN_ENTRIES[fp] then
+		return
+	end
+	SEEN_ENTRIES[fp] = true
+
+	table.insert(HTTP_LOGS, {
+		index = #HTTP_LOGS + 1,
+		method = tostring(info.method or "GET"),
+		url = urlStr,
+		reqBody = info.reqBody and tostring(info.reqBody) or nil,
+		response = respStr,
+		time = os.date("%H:%M:%S"),
+	})
+
+	if type(onLogUpdated) == "function" then
+		pcall(onLogUpdated, #HTTP_LOGS)
+	end
+end
+
+-- 1. Hook game:HttpGet / game.HttpGetAsync + áp dụng spoofJsonEarly lên kết quả trả về
+if hookfunction then
+	pcall(function()
+		if game.HttpGet then
+			local oldHttpGet
+			oldHttpGet = hookfunction(game.HttpGet, function(self, url, ...)
+				local res = oldHttpGet(self, url, ...)
+				if type(res) == "string" then
+					res = spoofJsonEarly(res)
+				end
+				recordHttp({
+					method = "HttpGet",
+					url = url,
+					response = res,
+				})
+				return res
+			end)
+		end
+	end)
+
+	pcall(function()
+		if game.HttpGetAsync then
+			local oldHttpGetAsync
+			oldHttpGetAsync = hookfunction(game.HttpGetAsync, function(self, url, ...)
+				local res = oldHttpGetAsync(self, url, ...)
+				if type(res) == "string" then
+					res = spoofJsonEarly(res)
+				end
+				recordHttp({
+					method = "HttpGetAsync",
+					url = url,
+					response = res,
+				})
+				return res
+			end)
+		end
+	end)
+
+	-- 2. Hook các hàm request HTTP phổ biến của executor (request / http.request / syn.request)
+	local function wrapRequestFn(fnName, fn)
+		if type(fn) ~= "function" then
+			return
+		end
+		pcall(function()
+			local oldFn
+			oldFn = hookfunction(fn, function(reqOpts, ...)
+				local url = type(reqOpts) == "table" and (reqOpts.Url or reqOpts.url) or tostring(reqOpts)
+				local method = type(reqOpts) == "table" and (reqOpts.Method or reqOpts.method) or "REQUEST"
+				local reqBody = type(reqOpts) == "table" and (reqOpts.Body or reqOpts.body) or nil
+
+				local res = oldFn(reqOpts, ...)
+				local respBody = ""
+				if type(res) == "table" then
+					local rawBody = res.Body or res.body
+					if type(rawBody) == "string" then
+						local spoofed = spoofJsonEarly(rawBody)
+						if res.Body ~= nil then res.Body = spoofed end
+						if res.body ~= nil then res.body = spoofed end
+						respBody = spoofed
+					end
+				elseif type(res) == "string" then
+					res = spoofJsonEarly(res)
+					respBody = res
+				end
+
+				recordHttp({
+					method = fnName .. ":" .. tostring(method),
+					url = url,
+					reqBody = reqBody,
+					response = respBody,
+				})
+				return res
+			end)
+		end)
+	end
+
+	wrapRequestFn("request", rawget(_G, "request") or request)
+	if type(http) == "table" and type(http.request) == "function" then
+		wrapRequestFn("http.request", http.request)
+	end
+	if type(syn) == "table" and type(syn.request) == "function" then
+		wrapRequestFn("syn.request", syn.request)
+	end
+end
+
+-- 3. Hook __namecall dự phòng nếu script gọi game:HttpGet / game:HttpGetAsync qua metamethod
+if hookmetamethod and getnamecallmethod then
+	pcall(function()
+		local oldNamecall
+		oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+			local methodName = getnamecallmethod()
+			if self == game and (methodName == "HttpGet" or methodName == "HttpGetAsync") then
+				local args = { ... }
+				local url = args[1]
+				local res = oldNamecall(self, ...)
+				if type(res) == "string" then
+					res = spoofJsonEarly(res)
+				end
+				recordHttp({
+					method = "namecall:" .. tostring(methodName),
+					url = url,
+					response = res,
+				})
+				return res
+			end
+			return oldNamecall(self, ...)
+		end)
+	end)
+end
+
+local function buildHttpReport()
+	if #HTTP_LOGS == 0 then
+		return ""
+	end
+
+	local out = {
+		"-- GAU HTTP HOOK LOG",
+		"-- Thời gian xuất: " .. os.date("%Y-%m-%d %H:%M:%S"),
+		"-- Tổng số request HTTP bắt được: " .. tostring(#HTTP_LOGS),
+		"",
+	}
+
+	for _, item in ipairs(HTTP_LOGS) do
+		table.insert(out, "==========================================")
+		table.insert(out, string.format("-- [#%d] [%s] lúc %s", item.index, item.method, item.time))
+		table.insert(out, "-- URL: " .. item.url)
+		if item.reqBody and #item.reqBody > 0 then
+			table.insert(out, "-- Request Body (" .. tostring(#item.reqBody) .. " ký tự): " .. item.reqBody)
+		end
+		table.insert(out, "-- Response (" .. tostring(#item.response) .. " ký tự):")
+		table.insert(out, "==========================================")
+		table.insert(out, item.response)
+		table.insert(out, "")
+	end
+
+	return table.concat(out, "\n")
+end
+
+local function copyReportToClipboard()
+	local txt = buildHttpReport()
+	if txt == "" then
+		return false, "Chưa bắt được request HTTP nào!"
+	end
+	local clipFn = setclipboard or toclipboard or (syn and syn.write_clipboard)
+	if not clipFn then
+		return false, "Executor không hỗ trợ copy clipboard."
+	end
+	local ok, err = pcall(clipFn, txt)
+	if ok then
+		return true, "Đã sao chép " .. tostring(#HTTP_LOGS) .. " log HTTP!"
+	end
+	return false, "Lỗi copy: " .. tostring(err)
+end
+
+local function saveReportToTxt(fileName)
+	local txt = buildHttpReport()
+	if txt == "" then
+		return false, "Chưa bắt được request HTTP nào!"
+	end
+	local writeFn = writefile or (syn and syn.write_file) or filewrite
+	if not writeFn then
+		return false, "Executor không hỗ trợ writefile."
+	end
+	local clean = tostring(fileName or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub('[\\/:*?"<>|]', "_")
+	if clean == "" then
+		return false, "Nhập tên file trước khi lưu!"
+	end
+	if not clean:lower():match("%.txt$") then
+		clean = clean .. ".txt"
+	end
+	local ok, err = pcall(writeFn, clean, txt)
+	if ok then
+		return true, "Đã lưu -> " .. clean
+	end
+	return false, "Lỗi lưu: " .. tostring(err)
+end
+
+local function createHttpHookUI()
+	local parentGui = (gethui and gethui()) or CoreGui
+	pcall(function()
+		local old = parentGui:FindFirstChild("GauHttpHookGui")
+		if old then
+			old:Destroy()
+		end
+	end)
+
+	local sg = Instance.new("ScreenGui")
+	sg.Name = "GauHttpHookGui"
+	sg.ResetOnSpawn = false
+	sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+	local okParent = pcall(function()
+		sg.Parent = parentGui
+	end)
+	if not okParent or not sg.Parent then
+		if not PlayerGui and LocalPlayer then
+			PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
+		end
+		if PlayerGui then
+			sg.Parent = PlayerGui
+		end
+	end
+
+	local toggleBtn = Instance.new("TextButton")
+	toggleBtn.Name = "HttpHookToggle"
+	toggleBtn.Size = UDim2.fromOffset(122, 34)
+	toggleBtn.Position = UDim2.new(0.02, 0, 0.42, 0)
+	toggleBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 245)
+	toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	toggleBtn.Font = Enum.Font.GothamBold
+	toggleBtn.TextSize = 12
+	toggleBtn.Text = "🌐 HTTP (" .. tostring(#HTTP_LOGS) .. ")"
+	toggleBtn.Active = true
+	toggleBtn.BorderSizePixel = 0
+	toggleBtn.Parent = sg
+
+	Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 8)
+
+	onLogUpdated = function(count)
+		if toggleBtn and toggleBtn.Parent then
+			toggleBtn.Text = "🌐 HTTP (" .. tostring(count) .. ")"
+		end
+	end
+
+	local panel = Instance.new("Frame")
+	panel.Name = "HttpActionPanel"
+	panel.Size = UDim2.fromOffset(270, 156)
+	panel.Position = UDim2.new(0.5, -135, 0.5, -78)
+	panel.BackgroundColor3 = Color3.fromRGB(24, 27, 35)
+	panel.BorderSizePixel = 0
+	panel.Visible = false
+	panel.Active = true
+	panel.Parent = sg
+
+	Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+	local pStroke = Instance.new("UIStroke", panel)
+	pStroke.Color = Color3.fromRGB(70, 145, 255)
+	pStroke.Thickness = 1.5
+
+	local lblTitle = Instance.new("TextLabel")
+	lblTitle.Size = UDim2.new(1, -20, 0, 24)
+	lblTitle.Position = UDim2.new(0, 10, 0, 8)
+	lblTitle.BackgroundTransparency = 1
+	lblTitle.Text = "Xuất Log HTTP khi Load"
+	lblTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lblTitle.Font = Enum.Font.GothamBold
+	lblTitle.TextSize = 13
+	lblTitle.TextXAlignment = Enum.TextXAlignment.Left
+	lblTitle.Parent = panel
+
+	local fileInput = Instance.new("TextBox")
+	fileInput.Size = UDim2.new(1, -20, 0, 32)
+	fileInput.Position = UDim2.new(0, 10, 0, 36)
+	fileInput.BackgroundColor3 = Color3.fromRGB(38, 42, 54)
+	fileInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+	fileInput.PlaceholderText = "Tên file .txt (vd: http_load)..."
+	fileInput.PlaceholderColor3 = Color3.fromRGB(150, 155, 175)
+	fileInput.Text = ""
+	fileInput.ClearTextOnFocus = false
+	fileInput.Font = Enum.Font.Gotham
+	fileInput.TextSize = 12
+	fileInput.BorderSizePixel = 0
+	fileInput.Parent = panel
+	Instance.new("UICorner", fileInput).CornerRadius = UDim.new(0, 6)
+
+	local lblStatus = Instance.new("TextLabel")
+	lblStatus.Size = UDim2.new(1, -20, 0, 18)
+	lblStatus.Position = UDim2.new(0, 10, 0, 72)
+	lblStatus.BackgroundTransparency = 1
+	lblStatus.Text = ""
+	lblStatus.TextColor3 = Color3.fromRGB(140, 210, 255)
+	lblStatus.Font = Enum.Font.Gotham
+	lblStatus.TextSize = 11
+	lblStatus.TextXAlignment = Enum.TextXAlignment.Left
+	lblStatus.Parent = panel
+
+	local copyBtn = Instance.new("TextButton")
+	copyBtn.Size = UDim2.new(0.5, -14, 0, 34)
+	copyBtn.Position = UDim2.new(0, 10, 1, -44)
+	copyBtn.BackgroundColor3 = Color3.fromRGB(235, 165, 25)
+	copyBtn.TextColor3 = Color3.fromRGB(20, 20, 20)
+	copyBtn.Font = Enum.Font.GothamBold
+	copyBtn.TextSize = 12
+	copyBtn.Text = "📋 Sao chép"
+	copyBtn.BorderSizePixel = 0
+	copyBtn.Parent = panel
+	Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
+
+	local saveBtn = Instance.new("TextButton")
+	saveBtn.Size = UDim2.new(0.5, -14, 0, 34)
+	saveBtn.Position = UDim2.new(0.5, 4, 1, -44)
+	saveBtn.BackgroundColor3 = Color3.fromRGB(45, 175, 95)
+	saveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	saveBtn.Font = Enum.Font.GothamBold
+	saveBtn.TextSize = 12
+	saveBtn.Text = "💾 Lưu .txt"
+	saveBtn.BorderSizePixel = 0
+	saveBtn.Parent = panel
+	Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 6)
+
+	local dragging, dragStart, startPos, moved = false, nil, nil, false
+
+	toggleBtn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+			moved = false
+			dragStart = input.Position
+			startPos = toggleBtn.Position
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+			local delta = input.Position - dragStart
+			if delta.Magnitude > 8 then
+				moved = true
+			end
+			toggleBtn.Position = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if dragging then
+				dragging = false
+				if not moved then
+					lblStatus.Text = ""
+					panel.Visible = not panel.Visible
+				end
+			end
+		end
+	end)
+
+	copyBtn.MouseButton1Click:Connect(function()
+		local ok, msg = copyReportToClipboard()
+		lblStatus.TextColor3 = ok and Color3.fromRGB(95, 235, 135) or Color3.fromRGB(255, 110, 110)
+		lblStatus.Text = msg
+	end)
+
+	saveBtn.MouseButton1Click:Connect(function()
+		local ok, msg = saveReportToTxt(fileInput.Text)
+		lblStatus.TextColor3 = ok and Color3.fromRGB(95, 235, 135) or Color3.fromRGB(255, 110, 110)
+		lblStatus.Text = msg
+	end)
+end
+
+createHttpHookUI()
