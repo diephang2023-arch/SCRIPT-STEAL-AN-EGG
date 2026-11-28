@@ -1,0 +1,1124 @@
+--[[ =====================================================================
+     GAU MODS - FULL LABELED UI SCANNER & LIGHT OVERLAY EXPORTER
+     - Gắn ký hiệu chi tiết cho cả TEXT, IMAGES, IDS, LINKS, CLIPBOARD:
+       + Ảnh UI: [NÚT MỞ MENU], [MÀN HÌNH CHÀO], [LOGO / ẢNH Ở UI]
+       + Văn bản: [TIÊU ĐỀ MENU / HEADER], [NÚT BẤM], [NHÃN TEXT] + ghi rõ Text gốc -> Chữ đổi thành
+     - Tự động lọc bỏ ID ảnh của Pet / vật phẩm danh sách
+     - Hỗ trợ đa script & chuỗi loadstring nhiều link, không nhảy số liên tục
+     - Xuất file .txt vào delta/<ten_file>.txt dạng code Lua nhẹ, tự chạy được
+===================================================================== ]]
+
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui")
+
+-- =====================================================================
+-- 1. CẤU HÌNH THỜI GIAN QUÉT & LỚP PHỦ THAY THẾ
+-- =====================================================================
+local AUTO_STOP_SECONDS = 12 -- Tự động dừng quét sau 12 giây kể từ lúc chạy script
+
+local ENABLE_CUSTOM_OVERLAY = true
+
+local OVERLAY_CONFIG = {
+	TEXT = {
+		-- ["Chữ gốc"] = "Chữ đổi thành", -- [TIÊU ĐỀ MENU] Text gốc: Chữ gốc -> Đổi thành: Chữ đổi thành
+	},
+	IMAGES = {
+		-- ["rbxassetid://123456789"] = "rbxassetid://987654321", -- [NÚT MỞ MENU] Gốc -> Đổi thành
+	},
+	IDS = {
+		-- ["123456789"] = "987654321", -- [NÚT MỞ MENU] ID gốc -> ID đổi thành
+	},
+	LINKS = {
+		-- ["https://discord.gg/goc"] = "https://discord.gg/doithanh", -- [LINK DISCORD / URL]
+	},
+	CLIPBOARD = {
+		-- ["Nội dung gốc"] = "Nội dung đổi thành", -- [NÚT SAO CHÉP]
+	},
+}
+
+-- =====================================================================
+-- 2. TRẠNG THÁI QUÉT & BỘ LỌC DỮ LIỆU ĐỘNG / PET
+-- =====================================================================
+local SELF_SIGNATURE = "--[[ GAU_FULL_LABELED_SCANNER_SELF_IGNORE ]]"
+
+local anyScriptExecuted = false
+local scanActive = false
+local scanSessionId = 0
+local existingGuis = setmetatable({}, { __mode = "k" })
+local trackedTargetGuis = setmetatable({}, { __mode = "k" })
+
+local SYSTEM_GUI_BLACKLIST = {
+	RobloxGui = true,
+	TopBarApp = true,
+	Chat = true,
+	BubbleChat = true,
+	PlayerList = true,
+	PurchasePrompt = true,
+	CoreScriptLocalization = true,
+	RobloxPromptGui = true,
+	ThemeProvider = true,
+	DevConsoleMaster = true,
+	GauFullLabeledScannerGui = true,
+}
+
+local CAPTURED = {
+	TEXTS = {},
+	IMAGES = {},
+	IDS = {},
+	DISCORD = {},
+	URLS = {},
+	CLIPBOARD = {},
+}
+
+local SEEN = {
+	TEXTS = {},
+	IMAGES = {},
+	IDS = {},
+	DISCORD = {},
+	URLS = {},
+	CLIPBOARD = {},
+	SOURCES = {},
+}
+
+local IMAGE_INDEX_BY_VAL = {}
+local TEXT_INDEX_BY_VAL = {}
+local onStateUpdated = nil
+
+local function isSelfContent(str)
+	if type(str) ~= "string" then
+		return false
+	end
+	return string.find(str, SELF_SIGNATURE, 1, true) ~= nil
+		or (string.find(str, "GauFullLabeledScannerGui", 1, true) ~= nil and string.find(str, "AUTO_STOP_SECONDS", 1, true) ~= nil)
+end
+
+local function totalCapturedCount()
+	return #CAPTURED.TEXTS + #CAPTURED.IMAGES + #CAPTURED.IDS + #CAPTURED.DISCORD + #CAPTURED.URLS + #CAPTURED.CLIPBOARD
+end
+
+local function notifyUiChanged()
+	if type(onStateUpdated) == "function" then
+		pcall(onStateUpdated, totalCapturedCount(), scanActive, anyScriptExecuted)
+	end
+end
+
+local function resetCapturedData()
+	CAPTURED.TEXTS = {}
+	CAPTURED.IMAGES = {}
+	CAPTURED.IDS = {}
+	CAPTURED.DISCORD = {}
+	CAPTURED.URLS = {}
+	CAPTURED.CLIPBOARD = {}
+
+	SEEN.TEXTS = {}
+	SEEN.IMAGES = {}
+	SEEN.IDS = {}
+	SEEN.DISCORD = {}
+	SEEN.URLS = {}
+	SEEN.CLIPBOARD = {}
+	SEEN.SOURCES = {}
+	IMAGE_INDEX_BY_VAL = {}
+	TEXT_INDEX_BY_VAL = {}
+
+	anyScriptExecuted = false
+	scanActive = false
+	notifyUiChanged()
+end
+
+-- Lọc bỏ chuỗi biến thiên liên tục (đồng hồ, FPS, Ping, %, cân nặng kg, chỉ số pet...)
+local function isDynamicNoiseText(str)
+	if #str <= 1 then
+		return true
+	end
+	if str:match("^[%d%s%.,:%-/%%]+$") then
+		return true
+	end
+	local lower = str:lower()
+	if lower:match("^fps%s*:") or lower:match("^ping%s*:") or lower:match("%d+%s*ms$") then
+		return true
+	end
+	if lower:match("%d+[%.,]?%d*%s*kg") or lower:match("%d+[%.,]?%d*%s*studs") then
+		return true
+	end
+	if lower:match("^%d+[%.,]?%d*[kmb]$") or lower:match("^%d+[%.,]?%d*x$") then
+		return true
+	end
+	if str:match("^%d+:%d+$") or str:match("^%d+:%d+:%d+$") then
+		return true
+	end
+	return false
+end
+
+-- Kiểm tra xem ImageLabel/ImageButton có phải là ảnh của Pet / thẻ vật phẩm trong danh sách không
+local function isPetOrItemCardImage(obj)
+	if not obj then
+		return false
+	end
+
+	local nameLower = tostring(obj.Name or ""):lower()
+	if nameLower:find("pet") or nameLower:find("item") or nameLower:find("fruit") or nameLower:find("egg") then
+		return true
+	end
+
+	local curr = obj.Parent
+	local depth = 0
+	while curr and depth < 4 do
+		local pName = tostring(curr.Name or ""):lower()
+		if pName:find("pet") or pName:find("inventory") or pName:find("list") or pName:find("card") then
+			return true
+		end
+		if curr:IsA("GuiObject") and not curr:IsA("ScreenGui") then
+			local hasPetStat = false
+			for _, sibling in ipairs(curr:GetChildren()) do
+				if sibling:IsA("TextLabel") and type(sibling.Text) == "string" then
+					local t = sibling.Text:lower()
+					if t:match("^%d+[%.,]?%d*[kmb]$")
+						or t:match("^%d+[%.,]?%d*x$")
+						or t:match("%d+[%.,]?%d*%s*kg")
+						or t:find("pet") then
+						hasPetStat = true
+						break
+					end
+				end
+			end
+			if hasPetStat then
+				return true
+			end
+		end
+		curr = curr.Parent
+		depth = depth + 1
+	end
+
+	return false
+end
+
+-- Phân loại ký hiệu cho văn bản UI
+local function classifyUiTextTag(obj, txt)
+	if not obj then
+		return "[VĂN BẢN UI]"
+	end
+
+	local nameLower = tostring(obj.Name or ""):lower()
+	local parentNameLower = obj.Parent and tostring(obj.Parent.Name or ""):lower() or ""
+	local txtLower = tostring(txt or ""):lower()
+
+	local curr = obj
+	local depth = 0
+	while curr and depth < 5 do
+		local n = tostring(curr.Name or ""):lower()
+		if n:find("splash") or n:find("intro") or n:find("welcome") or n:find("loading") or n:find("boot") then
+			return "[MÀN HÌNH CHÀO]"
+		end
+		curr = curr.Parent
+		depth = depth + 1
+	end
+
+	if nameLower:find("title") or nameLower:find("header") or nameLower:find("hub") or parentNameLower:find("top") or parentNameLower:find("header") or txtLower:find("hub") then
+		return "[TIÊU ĐỀ MENU / HUB]"
+	end
+
+	if obj:IsA("TextButton") then
+		return "[NÚT BẤM UI]"
+	end
+
+	if obj:IsA("TextBox") then
+		return "[Ô NHẬP TEXT]"
+	end
+
+	return "[NHÃN TEXT UI]"
+end
+
+-- Phân loại ký hiệu rõ ràng cho ảnh UI
+local function classifyUiImageTag(obj)
+	if not obj then
+		return "[ẢNH Ở UI]"
+	end
+
+	local nameLower = tostring(obj.Name or ""):lower()
+	local parentNameLower = obj.Parent and tostring(obj.Parent.Name or ""):lower() or ""
+	local absSize = Vector2.new(0, 0)
+	pcall(function()
+		absSize = obj.AbsoluteSize
+	end)
+
+	if obj:IsA("ImageButton") then
+		if nameLower:find("open")
+			or nameLower:find("toggle")
+			or nameLower:find("menu")
+			or nameLower:find("hub")
+			or nameLower:find("mini")
+			or nameLower:find("float")
+			or parentNameLower:find("open")
+			or parentNameLower:find("toggle")
+			or parentNameLower:find("mini")
+			or (absSize.X > 0 and absSize.X <= 95 and absSize.Y > 0 and absSize.Y <= 95 and obj.Parent and obj.Parent:IsA("ScreenGui")) then
+			return "[NÚT MỞ MENU]"
+		end
+	end
+
+	local curr = obj
+	local depth = 0
+	while curr and depth < 5 do
+		local n = tostring(curr.Name or ""):lower()
+		if n:find("splash")
+			or n:find("intro")
+			or n:find("welcome")
+			or n:find("loading")
+			or n:find("boot")
+			or n:find("banner") then
+			return "[MÀN HÌNH CHÀO]"
+		end
+		curr = curr.Parent
+		depth = depth + 1
+	end
+
+	if absSize.X >= 280 and absSize.Y >= 150 then
+		return "[MÀN HÌNH CHÀO / NỀN UI]"
+	end
+
+	if nameLower:find("logo") or nameLower:find("avatar") or nameLower:find("title") or parentNameLower:find("top") or parentNameLower:find("header") then
+		return "[LOGO / ẢNH Ở UI]"
+	end
+
+	return "[ẢNH Ở UI]"
+end
+
+local function addUniqueItem(category, value, roleTag)
+	if not (anyScriptExecuted and scanActive) then
+		return
+	end
+	if type(value) ~= "string" then
+		return
+	end
+	local trimmed = value:gsub("^%s+", ""):gsub("%s+$", "")
+	if trimmed == "" or #trimmed > 400 then
+		return
+	end
+	if isSelfContent(trimmed) then
+		return
+	end
+	if category == "TEXTS" and isDynamicNoiseText(trimmed) then
+		return
+	end
+
+	if category == "TEXTS" then
+		local existingIdx = TEXT_INDEX_BY_VAL[trimmed]
+		if existingIdx then
+			local oldTag = CAPTURED.TEXTS[existingIdx].tag
+			if oldTag == "[NHÃN TEXT UI]" and roleTag and roleTag ~= "[NHÃN TEXT UI]" then
+				CAPTURED.TEXTS[existingIdx].tag = roleTag
+			end
+			return
+		end
+		SEEN.TEXTS[trimmed] = true
+		table.insert(CAPTURED.TEXTS, {
+			value = trimmed,
+			tag = roleTag or "[NHÃN TEXT UI]",
+		})
+		TEXT_INDEX_BY_VAL[trimmed] = #CAPTURED.TEXTS
+		notifyUiChanged()
+		return
+	end
+
+	if SEEN[category][trimmed] then
+		return
+	end
+	SEEN[category][trimmed] = true
+
+	table.insert(CAPTURED[category], {
+		value = trimmed,
+		tag = roleTag or ("[" .. category .. "]"),
+	})
+	notifyUiChanged()
+end
+
+local function addUiImageWithTag(rawImg, uiTag)
+	if not (anyScriptExecuted and scanActive) or type(rawImg) ~= "string" then
+		return
+	end
+	local trimmed = rawImg:gsub("^%s+", ""):gsub("%s+$", "")
+	if trimmed == "" or #trimmed > 300 or isSelfContent(trimmed) then
+		return
+	end
+
+	local existingIdx = IMAGE_INDEX_BY_VAL[trimmed]
+	if existingIdx then
+		local oldTag = CAPTURED.IMAGES[existingIdx].tag
+		if oldTag == "[ẢNH Ở UI]" and uiTag ~= "[ẢNH Ở UI]" then
+			CAPTURED.IMAGES[existingIdx].tag = uiTag
+		end
+		return
+	end
+
+	SEEN.IMAGES[trimmed] = true
+	table.insert(CAPTURED.IMAGES, {
+		value = trimmed,
+		tag = uiTag or "[ẢNH Ở UI]",
+	})
+	IMAGE_INDEX_BY_VAL[trimmed] = #CAPTURED.IMAGES
+
+	local idNum = trimmed:match("(%d+)")
+	if idNum and #idNum >= 5 and not SEEN.IDS[idNum] then
+		SEEN.IDS[idNum] = true
+		table.insert(CAPTURED.IDS, {
+			value = idNum,
+			tag = uiTag or "[ẢNH Ở UI]",
+		})
+	end
+
+	notifyUiChanged()
+end
+
+-- =====================================================================
+-- 3. ÁP DỤNG LỚP PHỦ THAY THẾ (TRA CỨU TRỰC TIẾP NHẸ)
+-- =====================================================================
+local function applyStringOverlay(rawStr)
+	if not ENABLE_CUSTOM_OVERLAY or type(rawStr) ~= "string" or rawStr == "" then
+		return rawStr
+	end
+	return OVERLAY_CONFIG.TEXT[rawStr] or OVERLAY_CONFIG.IDS[rawStr] or OVERLAY_CONFIG.LINKS[rawStr] or rawStr
+end
+
+local function applyImageOverlay(rawImg)
+	if not ENABLE_CUSTOM_OVERLAY or type(rawImg) ~= "string" or rawImg == "" then
+		return rawImg
+	end
+	local direct = OVERLAY_CONFIG.IMAGES[rawImg] or OVERLAY_CONFIG.IDS[rawImg]
+	if direct ~= nil then
+		return tostring(direct)
+	end
+	local digits = rawImg:match("(%d+)")
+	if digits then
+		local rep = OVERLAY_CONFIG.IMAGES[digits] or OVERLAY_CONFIG.IDS[digits]
+		if rep ~= nil then
+			rep = tostring(rep)
+			return rep:match("^rbx") and rep or ("rbxassetid://" .. rep)
+		end
+	end
+	return rawImg
+end
+
+local function applyClipboardOverlay(rawClip)
+	if not ENABLE_CUSTOM_OVERLAY or type(rawClip) ~= "string" or rawClip == "" then
+		return rawClip
+	end
+	return OVERLAY_CONFIG.CLIPBOARD[rawClip] or OVERLAY_CONFIG.IDS[rawClip] or OVERLAY_CONFIG.LINKS[rawClip] or rawClip
+end
+
+-- =====================================================================
+-- 4. THEO DÕI SCREENGUI MỚI & QUÉT UI (BỎ QUA ẢNH PET)
+-- =====================================================================
+local function snapshotExistingGuis(root)
+	if not root then
+		return
+	end
+	pcall(function()
+		for _, child in ipairs(root:GetChildren()) do
+			existingGuis[child] = true
+		end
+	end)
+end
+
+local function isTrackedTargetDescendant(inst)
+	local curr = inst
+	while curr do
+		if SYSTEM_GUI_BLACKLIST[curr.Name] then
+			return false
+		end
+		if trackedTargetGuis[curr] then
+			return true
+		end
+		curr = curr.Parent
+	end
+	return false
+end
+
+local hookedObjects = setmetatable({}, { __mode = "k" })
+
+local function inspectTargetGuiObject(obj)
+	if not obj or not isTrackedTargetDescendant(obj) then
+		return
+	end
+
+	if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+		local txt = obj.Text
+		if type(txt) == "string" and txt ~= "" then
+			if scanActive then
+				if txt:lower():find("discord%.gg") or txt:lower():find("discord%.com") then
+					addUniqueItem("DISCORD", txt, "[LINK DISCORD UI]")
+				elseif txt:match("^https?://") then
+					addUniqueItem("URLS", txt, "[LINK URL UI]")
+				else
+					addUniqueItem("TEXTS", txt, classifyUiTextTag(obj, txt))
+				end
+			end
+			if ENABLE_CUSTOM_OVERLAY then
+				local rep = applyStringOverlay(txt)
+				if rep ~= txt then
+					obj.Text = rep
+				end
+			end
+		end
+
+		if not hookedObjects[obj] then
+			hookedObjects[obj] = true
+			obj:GetPropertyChangedSignal("Text"):Connect(function()
+				local newTxt = obj.Text
+				if type(newTxt) ~= "string" or newTxt == "" then
+					return
+				end
+				if scanActive then
+					if newTxt:lower():find("discord%.gg") or newTxt:lower():find("discord%.com") then
+						addUniqueItem("DISCORD", newTxt, "[LINK DISCORD UI]")
+					elseif newTxt:match("^https?://") then
+						addUniqueItem("URLS", newTxt, "[LINK URL UI]")
+					else
+						addUniqueItem("TEXTS", newTxt, classifyUiTextTag(obj, newTxt))
+					end
+				end
+				if ENABLE_CUSTOM_OVERLAY then
+					local rep = applyStringOverlay(newTxt)
+					if rep ~= newTxt then
+						obj.Text = rep
+					end
+				end
+			end)
+		end
+	elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+		if isPetOrItemCardImage(obj) then
+			return
+		end
+
+		local img = obj.Image
+		if type(img) == "string" and img ~= "" then
+			if scanActive then
+				addUiImageWithTag(img, classifyUiImageTag(obj))
+			end
+			if ENABLE_CUSTOM_OVERLAY then
+				local rep = applyImageOverlay(img)
+				if rep ~= img then
+					obj.Image = rep
+				end
+			end
+		end
+
+		if not hookedObjects[obj] then
+			hookedObjects[obj] = true
+			obj:GetPropertyChangedSignal("Image"):Connect(function()
+				if isPetOrItemCardImage(obj) then
+					return
+				end
+				local newImg = obj.Image
+				if type(newImg) == "string" and newImg ~= "" then
+					if scanActive then
+						addUiImageWithTag(newImg, classifyUiImageTag(obj))
+					end
+					if ENABLE_CUSTOM_OVERLAY then
+						local rep = applyImageOverlay(newImg)
+						if rep ~= newImg then
+							obj.Image = rep
+						end
+					end
+				end
+			end)
+		end
+	end
+end
+
+local function registerNewTargetScreenGui(gui)
+	if not gui or SYSTEM_GUI_BLACKLIST[gui.Name] or existingGuis[gui] then
+		return
+	end
+	if not gui:IsA("ScreenGui") then
+		return
+	end
+	trackedTargetGuis[gui] = true
+	pcall(function()
+		for _, desc in ipairs(gui:GetDescendants()) do
+			inspectTargetGuiObject(desc)
+		end
+		gui.DescendantAdded:Connect(function(desc)
+			if scanActive or ENABLE_CUSTOM_OVERLAY then
+				task.defer(inspectTargetGuiObject, desc)
+			end
+		end)
+	end)
+end
+
+local function attachRootContainer(root)
+	if not root then
+		return
+	end
+	snapshotExistingGuis(root)
+	pcall(function()
+		root.ChildAdded:Connect(function(child)
+			if anyScriptExecuted then
+				task.defer(registerNewTargetScreenGui, child)
+			else
+				existingGuis[child] = true
+			end
+		end)
+	end)
+end
+
+local function startScanSessionForScript()
+	if anyScriptExecuted and scanActive then
+		return
+	end
+
+	anyScriptExecuted = true
+	scanActive = true
+	scanSessionId = scanSessionId + 1
+	local currentSession = scanSessionId
+	notifyUiChanged()
+
+	task.delay(AUTO_STOP_SECONDS, function()
+		if scanSessionId == currentSession and scanActive then
+			scanActive = false
+			notifyUiChanged()
+		end
+	end)
+end
+
+local function scanFetchedText(rawStr)
+	if not (anyScriptExecuted and scanActive) then
+		return
+	end
+	if type(rawStr) ~= "string" or #rawStr == 0 or isSelfContent(rawStr) then
+		return
+	end
+
+	local sig = tostring(#rawStr) .. ":" .. rawStr:sub(1, 60) .. ":" .. rawStr:sub(-60)
+	if SEEN.SOURCES[sig] then
+		return
+	end
+	SEEN.SOURCES[sig] = true
+
+	for subUrl in rawStr:gmatch("https?://[%w%.%-_~:/%?#@!$&'%(%)%*%+,;=%%]+") do
+		if subUrl:lower():find("discord", 1, true) then
+			addUniqueItem("DISCORD", subUrl, "[LINK DISCORD]")
+		else
+			addUniqueItem("URLS", subUrl, "[LINK SCRIPT / API]")
+		end
+	end
+
+	for dShort in rawStr:gmatch("discord%.gg/[%w%-_]+") do
+		addUniqueItem("DISCORD", dShort, "[LINK DISCORD]")
+	end
+
+	for clipStr in rawStr:gmatch('setclipboard%s*%(%s*["\']([^"\'\r\n]+)["\']%s*%)') do
+		addUniqueItem("CLIPBOARD", clipStr, "[NỘI DUNG NÚT SAO CHÉP]")
+	end
+end
+
+if gethui then
+	pcall(function()
+		attachRootContainer(gethui())
+	end)
+end
+attachRootContainer(CoreGui)
+if not PlayerGui and LocalPlayer then
+	PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+end
+if PlayerGui then
+	attachRootContainer(PlayerGui)
+end
+
+-- =====================================================================
+-- 5. HOOK HTTPGET & SETCLIPBOARD (HỖ TRỢ CHUỖI LOADSTRING NHIỀU LINK)
+-- =====================================================================
+if hookfunction then
+	if game.HttpGet then
+		pcall(function()
+			local oldHttpGet
+			oldHttpGet = hookfunction(game.HttpGet, function(self, url, ...)
+				local urlStr = type(url) == "string" and url or ""
+				if urlStr ~= "" and not isSelfContent(urlStr) then
+					startScanSessionForScript()
+				end
+
+				local res = oldHttpGet(self, url, ...)
+
+				if anyScriptExecuted and scanActive and urlStr ~= "" and not isSelfContent(urlStr) then
+					if urlStr:lower():find("discord") then
+						addUniqueItem("DISCORD", urlStr, "[LINK DISCORD]")
+					else
+						addUniqueItem("URLS", urlStr, "[LINK LOADSTRING]")
+					end
+				end
+
+				if anyScriptExecuted and scanActive and type(res) == "string" and #res > 0 and not isSelfContent(res) then
+					scanFetchedText(res)
+				end
+
+				return res
+			end)
+		end)
+	end
+
+	local clipTarget = setclipboard or toclipboard
+	if type(clipTarget) == "function" then
+		pcall(function()
+			local oldClip
+			oldClip = hookfunction(clipTarget, function(text, ...)
+				if type(text) == "string" and text ~= "" and not isSelfContent(text) then
+					if anyScriptExecuted and scanActive then
+						if text:lower():find("discord%.gg") or text:lower():find("discord%.com") then
+							addUniqueItem("DISCORD", text, "[LINK DISCORD]")
+						end
+						addUniqueItem("CLIPBOARD", text, "[NÚT SAO CHÉP]")
+					end
+					if ENABLE_CUSTOM_OVERLAY then
+						text = applyClipboardOverlay(text)
+					end
+				end
+				return oldClip(text, ...)
+			end)
+		end)
+	end
+end
+
+-- =====================================================================
+-- 6. XUẤT FILE CODE LUA KÈM CHỮ KÝ HIỆU "TEXT GỐC -> ĐỔI THÀNH" ĐẦY ĐỦ
+-- =====================================================================
+local function escapeLuaStr(s)
+	return tostring(s or ""):gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\r", ""):gsub("\n", "\\n")
+end
+
+local function formatLabeledEntries(list, mapTable, kindLabel)
+	local out = {}
+	for _, item in ipairs(list) do
+		local origVal = tostring(item.value or "")
+		local chosen = (mapTable and mapTable[origVal] and mapTable[origVal] ~= "") and tostring(mapTable[origVal]) or origVal
+		local roleTag = item.tag or ("[" .. kindLabel .. "]")
+		local shortOrig = #origVal > 45 and (origVal:sub(1, 42) .. "...") or origVal
+		local shortNew = #chosen > 45 and (chosen:sub(1, 42) .. "...") or chosen
+		local comment = string.format("-- %s | %s gốc: \"%s\" -> Đổi thành: \"%s\"", roleTag, kindLabel, shortOrig, shortNew)
+		table.insert(out, string.format('\t\t["%s"] = "%s", %s', escapeLuaStr(origVal), escapeLuaStr(chosen), comment))
+	end
+	return table.concat(out, "\n")
+end
+
+local function buildLightRunnableScript()
+	local textBlock = formatLabeledEntries(CAPTURED.TEXTS, OVERLAY_CONFIG.TEXT, "Text")
+	local imageBlock = formatLabeledEntries(CAPTURED.IMAGES, OVERLAY_CONFIG.IMAGES, "Ảnh")
+	local idBlock = formatLabeledEntries(CAPTURED.IDS, OVERLAY_CONFIG.IDS, "ID")
+	local linkEntries = {}
+	for _, item in ipairs(CAPTURED.DISCORD) do
+		table.insert(linkEntries, item)
+	end
+	for _, item in ipairs(CAPTURED.URLS) do
+		table.insert(linkEntries, item)
+	end
+	local linkBlock = formatLabeledEntries(linkEntries, OVERLAY_CONFIG.LINKS, "Link")
+	local clipBlock = formatLabeledEntries(CAPTURED.CLIPBOARD, OVERLAY_CONFIG.CLIPBOARD, "Clipboard")
+
+	return table.concat({
+		"--[[ LIGHT RUNNABLE OVERLAY SCRIPT | GAU MODS ]]",
+		"-- Mỗi dòng đều có ký hiệu vị trí + ghi chú: [VỊ TRÍ] | Loại gốc: \"...\" -> Đổi thành: \"...\"",
+		"-- Sửa giá trị bên phải dấu = ở mục cần đổi, rồi execute là chạy ngay (bản tối ưu nhẹ, không lag).",
+		"",
+		"local Players = game:GetService(\"Players\")",
+		"local CoreGui = game:GetService(\"CoreGui\")",
+		"local LocalPlayer = Players.LocalPlayer",
+		"local PlayerGui = LocalPlayer and LocalPlayer:FindFirstChildOfClass(\"PlayerGui\")",
+		"",
+		"local ENABLE_CUSTOM_OVERLAY = true",
+		"",
+		"local OVERLAY_CONFIG = {",
+		"\tTEXT = {",
+		textBlock ~= "" and textBlock or "\t\t-- [\"Text gốc\"] = \"Text đổi thành\", -- [TIÊU ĐỀ MENU / HUB] | Text gốc: \"Text gốc\" -> Đổi thành: \"Text đổi thành\"",
+		"\t},",
+		"\tIMAGES = {",
+		imageBlock ~= "" and imageBlock or "\t\t-- [\"rbxassetid://123456\"] = \"rbxassetid://654321\", -- [NÚT MỞ MENU] | Ảnh gốc: \"rbxassetid://123456\" -> Đổi thành: \"rbxassetid://654321\"",
+		"\t},",
+		"\tIDS = {",
+		idBlock ~= "" and idBlock or "\t\t-- [\"123456789\"] = \"987654321\", -- [NÚT MỞ MENU] | ID gốc: \"123456789\" -> Đổi thành: \"987654321\"",
+		"\t},",
+		"\tLINKS = {",
+		linkBlock ~= "" and linkBlock or "\t\t-- [\"https://discord.gg/goc\"] = \"https://discord.gg/moi\", -- [LINK DISCORD] | Link gốc: \"https://discord.gg/goc\" -> Đổi thành: \"https://discord.gg/moi\"",
+		"\t},",
+		"\tCLIPBOARD = {",
+		clipBlock ~= "" and clipBlock or "\t\t-- [\"Nội dung gốc\"] = \"Nội dung mới\", -- [NÚT SAO CHÉP] | Clipboard gốc: \"Nội dung gốc\" -> Đổi thành: \"Nội dung mới\"",
+		"\t},",
+		"}",
+		"",
+		"local function mapText(s)",
+		"\tif not ENABLE_CUSTOM_OVERLAY or type(s) ~= \"string\" or s == \"\" then return s end",
+		"\treturn OVERLAY_CONFIG.TEXT[s] or OVERLAY_CONFIG.IDS[s] or OVERLAY_CONFIG.LINKS[s] or s",
+		"end",
+		"",
+		"local function mapImage(img)",
+		"\tif not ENABLE_CUSTOM_OVERLAY or type(img) ~= \"string\" or img == \"\" then return img end",
+		"\tlocal direct = OVERLAY_CONFIG.IMAGES[img] or OVERLAY_CONFIG.IDS[img]",
+		"\tif direct ~= nil then return tostring(direct) end",
+		"\tlocal digits = img:match(\"(%d+)\")",
+		"\tif digits then",
+		"\t\tlocal rep = OVERLAY_CONFIG.IMAGES[digits] or OVERLAY_CONFIG.IDS[digits]",
+		"\t\tif rep ~= nil then",
+		"\t\t\trep = tostring(rep)",
+		"\t\t\treturn rep:match(\"^rbx\") and rep or (\"rbxassetid://\" .. rep)",
+		"\t\tend",
+		"\tend",
+		"\treturn img",
+		"end",
+		"",
+		"local function mapClipboard(txt)",
+		"\tif not ENABLE_CUSTOM_OVERLAY or type(txt) ~= \"string\" or txt == \"\" then return txt end",
+		"\treturn OVERLAY_CONFIG.CLIPBOARD[txt] or OVERLAY_CONFIG.IDS[txt] or OVERLAY_CONFIG.LINKS[txt] or txt",
+		"end",
+		"",
+		"local function patchGuiOnce(root)",
+		"\tif not root then return end",
+		"\tpcall(function()",
+		"\t\tfor _, obj in ipairs(root:GetDescendants()) do",
+		"\t\t\tif obj:IsA(\"TextLabel\") or obj:IsA(\"TextButton\") or obj:IsA(\"TextBox\") then",
+		"\t\t\t\tlocal m = mapText(obj.Text)",
+		"\t\t\t\tif m ~= obj.Text then obj.Text = m end",
+		"\t\t\telseif obj:IsA(\"ImageLabel\") or obj:IsA(\"ImageButton\") then",
+		"\t\t\t\tlocal m = mapImage(obj.Image)",
+		"\t\t\t\tif m ~= obj.Image then obj.Image = m end",
+		"\t\t\tend",
+		"\t\tend",
+		"\tend)",
+		"end",
+		"",
+		"local function attachLightWatcher(root)",
+		"\tif not root then return end",
+		"\tpatchGuiOnce(root)",
+		"\tpcall(function()",
+		"\t\troot.DescendantAdded:Connect(function(obj)",
+		"\t\t\tif obj:IsA(\"TextLabel\") or obj:IsA(\"TextButton\") or obj:IsA(\"TextBox\") then",
+		"\t\t\t\tlocal m = mapText(obj.Text)",
+		"\t\t\t\tif m ~= obj.Text then obj.Text = m end",
+		"\t\t\telseif obj:IsA(\"ImageLabel\") or obj:IsA(\"ImageButton\") then",
+		"\t\t\t\tlocal m = mapImage(obj.Image)",
+		"\t\t\t\tif m ~= obj.Image then obj.Image = m end",
+		"\t\t\tend",
+		"\t\tend)",
+		"\tend)",
+		"end",
+		"",
+		"if gethui then pcall(function() attachLightWatcher(gethui()) end) end",
+		"attachLightWatcher(CoreGui)",
+		"if not PlayerGui and LocalPlayer then PlayerGui = LocalPlayer:FindFirstChildOfClass(\"PlayerGui\") end",
+		"if PlayerGui then attachLightWatcher(PlayerGui) end",
+		"",
+		"local clipFn = setclipboard or toclipboard",
+		"if hookfunction and type(clipFn) == \"function\" then",
+		"\tpcall(function()",
+		"\t\tlocal oldClip",
+		"\t\toldClip = hookfunction(clipFn, function(txt, ...)",
+		"\t\t\tif type(txt) == \"string\" then txt = mapClipboard(txt) end",
+		"\t\t\treturn oldClip(txt, ...)",
+		"\t\tend)",
+		"\tend)",
+		"end",
+	}, "\n")
+end
+
+local function sanitizeFileName(name)
+	local clean = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	clean = clean:gsub('[\\/:*?"<>|]', "_")
+	return clean
+end
+
+local function saveToDeltaFolder(rawName)
+	local writeFn = writefile or (syn and syn.write_file) or filewrite
+	if not writeFn then
+		return false, "Executor không hỗ trợ writefile!"
+	end
+
+	local cleanName = sanitizeFileName(rawName)
+	if cleanName == "" then
+		return false, "Vui lòng đặt tên file trước khi lưu!"
+	end
+
+	if not cleanName:lower():match("%.txt$") then
+		cleanName = cleanName .. ".txt"
+	end
+
+	if type(makefolder) == "function" then
+		pcall(function()
+			if type(isfolder) == "function" then
+				if not isfolder("delta") then
+					makefolder("delta")
+				end
+			else
+				makefolder("delta")
+			end
+		end)
+	end
+
+	local fullPath = "delta/" .. cleanName
+	local content = buildLightRunnableScript()
+
+	local ok, err = pcall(function()
+		writeFn(fullPath, content)
+	end)
+
+	if ok then
+		return true, "Đã lưu bản ký hiệu đầy đủ -> " .. fullPath
+	end
+	return false, "Lỗi lưu file: " .. tostring(err)
+end
+
+-- =====================================================================
+-- 7. GIAO DIỆN NÚT NỔI LƯU, BẬT/DỪNG & RESET
+-- =====================================================================
+local function createScannerSaveUI()
+	local parentGui = (gethui and gethui()) or CoreGui
+	pcall(function()
+		local old = parentGui:FindFirstChild("GauFullLabeledScannerGui")
+		if old then
+			old:Destroy()
+		end
+	end)
+
+	local sg = Instance.new("ScreenGui")
+	sg.Name = "GauFullLabeledScannerGui"
+	sg.ResetOnSpawn = false
+	sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+	local placed = pcall(function()
+		sg.Parent = parentGui
+	end)
+	if not placed or not sg.Parent then
+		if not PlayerGui and LocalPlayer then
+			PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
+		end
+		if PlayerGui then
+			sg.Parent = PlayerGui
+		end
+	end
+
+	local holder = Instance.new("Frame")
+	holder.Name = "FloatingBar"
+	holder.Size = UDim2.fromOffset(220, 34)
+	holder.Position = UDim2.new(0.02, 0, 0.48, 0)
+	holder.BackgroundTransparency = 1
+	holder.Active = true
+	holder.Parent = sg
+
+	local floatBtn = Instance.new("TextButton")
+	floatBtn.Name = "FloatSaveScannerBtn"
+	floatBtn.Size = UDim2.fromOffset(112, 34)
+	floatBtn.Position = UDim2.fromOffset(0, 0)
+	floatBtn.BackgroundColor3 = Color3.fromRGB(245, 185, 35)
+	floatBtn.TextColor3 = Color3.fromRGB(22, 22, 22)
+	floatBtn.Font = Enum.Font.GothamBold
+	floatBtn.TextSize = 12
+	floatBtn.Text = "💾 Lưu (0)"
+	floatBtn.Active = true
+	floatBtn.BorderSizePixel = 0
+	floatBtn.Parent = holder
+
+	Instance.new("UICorner", floatBtn).CornerRadius = UDim.new(0, 8)
+	local btnStroke = Instance.new("UIStroke", floatBtn)
+	btnStroke.Color = Color3.fromRGB(70, 40, 10)
+	btnStroke.Thickness = 1.5
+
+	local toggleScanBtn = Instance.new("TextButton")
+	toggleScanBtn.Name = "ToggleScanBtn"
+	toggleScanBtn.Size = UDim2.fromOffset(50, 34)
+	toggleScanBtn.Position = UDim2.fromOffset(116, 0)
+	toggleScanBtn.BackgroundColor3 = Color3.fromRGB(75, 85, 105)
+	toggleScanBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	toggleScanBtn.Font = Enum.Font.GothamBold
+	toggleScanBtn.TextSize = 11
+	toggleScanBtn.Text = "Chờ"
+	toggleScanBtn.BorderSizePixel = 0
+	toggleScanBtn.Parent = holder
+	Instance.new("UICorner", toggleScanBtn).CornerRadius = UDim.new(0, 8)
+
+	local resetBtn = Instance.new("TextButton")
+	resetBtn.Name = "ResetScanBtn"
+	resetBtn.Size = UDim2.fromOffset(46, 34)
+	resetBtn.Position = UDim2.fromOffset(170, 0)
+	resetBtn.BackgroundColor3 = Color3.fromRGB(165, 55, 55)
+	resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	resetBtn.Font = Enum.Font.GothamBold
+	resetBtn.TextSize = 11
+	resetBtn.Text = "Xóa"
+	resetBtn.BorderSizePixel = 0
+	resetBtn.Parent = holder
+	Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0, 8)
+
+	onStateUpdated = function(total, isScanning, hasTarget)
+		if floatBtn and floatBtn.Parent then
+			floatBtn.Text = "💾 Lưu (" .. tostring(total) .. ")"
+		end
+		if toggleScanBtn and toggleScanBtn.Parent then
+			if not hasTarget then
+				toggleScanBtn.Text = "Chờ"
+				toggleScanBtn.BackgroundColor3 = Color3.fromRGB(75, 85, 105)
+			elseif isScanning then
+				toggleScanBtn.Text = "⏸ Dừng"
+				toggleScanBtn.BackgroundColor3 = Color3.fromRGB(45, 165, 95)
+			else
+				toggleScanBtn.Text = "▶ Quét"
+				toggleScanBtn.BackgroundColor3 = Color3.fromRGB(190, 90, 60)
+			end
+		end
+	end
+
+	toggleScanBtn.MouseButton1Click:Connect(function()
+		if not anyScriptExecuted then
+			return
+		end
+		scanActive = not scanActive
+		scanSessionId = scanSessionId + 1
+		notifyUiChanged()
+	end)
+
+	resetBtn.MouseButton1Click:Connect(function()
+		scanSessionId = scanSessionId + 1
+		resetCapturedData()
+	end)
+
+	local modal = Instance.new("Frame")
+	modal.Name = "SaveNameModal"
+	modal.Size = UDim2.fromOffset(280, 150)
+	modal.Position = UDim2.new(0.5, -140, 0.5, -75)
+	modal.BackgroundColor3 = Color3.fromRGB(24, 27, 35)
+	modal.BorderSizePixel = 0
+	modal.Visible = false
+	modal.Active = true
+	modal.Parent = sg
+
+	Instance.new("UICorner", modal).CornerRadius = UDim.new(0, 10)
+	local mStroke = Instance.new("UIStroke", modal)
+	mStroke.Color = Color3.fromRGB(90, 145, 255)
+	mStroke.Thickness = 1.5
+
+	local titleLbl = Instance.new("TextLabel")
+	titleLbl.Size = UDim2.new(1, -20, 0, 24)
+	titleLbl.Position = UDim2.new(0, 10, 0, 8)
+	titleLbl.BackgroundTransparency = 1
+	titleLbl.Text = "Lưu vào delta/<tên_file>.txt"
+	titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	titleLbl.Font = Enum.Font.GothamBold
+	titleLbl.TextSize = 13
+	titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+	titleLbl.Parent = modal
+
+	local nameBox = Instance.new("TextBox")
+	nameBox.Size = UDim2.new(1, -20, 0, 34)
+	nameBox.Position = UDim2.new(0, 10, 0, 38)
+	nameBox.BackgroundColor3 = Color3.fromRGB(38, 42, 54)
+	nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+	nameBox.PlaceholderText = "Nhập tên file (bắt buộc)..."
+	nameBox.PlaceholderColor3 = Color3.fromRGB(150, 155, 175)
+	nameBox.Text = ""
+	nameBox.ClearTextOnFocus = false
+	nameBox.Font = Enum.Font.Gotham
+	nameBox.TextSize = 13
+	nameBox.BorderSizePixel = 0
+	nameBox.Parent = modal
+	Instance.new("UICorner", nameBox).CornerRadius = UDim.new(0, 6)
+
+	local statusLbl = Instance.new("TextLabel")
+	statusLbl.Size = UDim2.new(1, -20, 0, 18)
+	statusLbl.Position = UDim2.new(0, 10, 0, 76)
+	statusLbl.BackgroundTransparency = 1
+	statusLbl.Text = ""
+	statusLbl.TextColor3 = Color3.fromRGB(255, 110, 110)
+	statusLbl.Font = Enum.Font.Gotham
+	statusLbl.TextSize = 11
+	statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+	statusLbl.Parent = modal
+
+	local cancelBtn = Instance.new("TextButton")
+	cancelBtn.Size = UDim2.new(0.5, -14, 0, 32)
+	cancelBtn.Position = UDim2.new(0, 10, 1, -40)
+	cancelBtn.BackgroundColor3 = Color3.fromRGB(65, 68, 82)
+	cancelBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	cancelBtn.Font = Enum.Font.GothamBold
+	cancelBtn.TextSize = 13
+	cancelBtn.Text = "Hủy"
+	cancelBtn.BorderSizePixel = 0
+	cancelBtn.Parent = modal
+	Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 6)
+
+	local confirmBtn = Instance.new("TextButton")
+	confirmBtn.Size = UDim2.new(0.5, -14, 0, 32)
+	confirmBtn.Position = UDim2.new(0.5, 4, 1, -40)
+	confirmBtn.BackgroundColor3 = Color3.fromRGB(45, 175, 95)
+	confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	confirmBtn.Font = Enum.Font.GothamBold
+	confirmBtn.TextSize = 13
+	confirmBtn.Text = "Xác nhận lưu"
+	confirmBtn.BorderSizePixel = 0
+	confirmBtn.Parent = modal
+	Instance.new("UICorner", confirmBtn).CornerRadius = UDim.new(0, 6)
+
+	local dragging, dragStart, startPos, moved = false, nil, nil, false
+
+	floatBtn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+			moved = false
+			dragStart = input.Position
+			startPos = holder.Position
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+			local delta = input.Position - dragStart
+			if delta.Magnitude > 8 then
+				moved = true
+			end
+			holder.Position = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if dragging then
+				dragging = false
+				if not moved then
+					statusLbl.Text = ""
+					nameBox.Text = ""
+					modal.Visible = not modal.Visible
+					if modal.Visible then
+						nameBox:CaptureFocus()
+					end
+				end
+			end
+		end
+	end)
+
+	cancelBtn.MouseButton1Click:Connect(function()
+		modal.Visible = false
+		statusLbl.Text = ""
+	end)
+
+	confirmBtn.MouseButton1Click:Connect(function()
+		local ok, msg = saveToDeltaFolder(nameBox.Text)
+		if ok then
+			statusLbl.TextColor3 = Color3.fromRGB(95, 235, 135)
+			statusLbl.Text = msg
+			task.delay(0.8, function()
+				if modal then
+					modal.Visible = false
+				end
+			end)
+		else
+			statusLbl.TextColor3 = Color3.fromRGB(255, 110, 110)
+			statusLbl.Text = msg
+			nameBox:CaptureFocus()
+		end
+	end)
+end
+
+createScannerSaveUI()
